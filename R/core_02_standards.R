@@ -4,37 +4,35 @@
 #   - identify_standards(): Label which rows are standards
 #   - extract_standards(): Isolate standards, merge with reference DB
 #
-# Dependencies: tidyverse
+# Dependencies:
 # Used by: All pipelines
 # Requires: Canonical format (from core_00_import)
 # ============================================================================
 
-library(tidyverse)
-
 identify_standards <- function(df, standard_names, verbose = TRUE) {
-  
+
   if (verbose) cat("Identifying standards\n")
-  
+
   if (verbose) {
     cat("  Standards to find:", paste(standard_names, collapse = ", "), "\n")
   }
-  
+
   # Validate input
   if (!is.character(standard_names) || length(standard_names) == 0) {
     stop("standard_names must be non-empty character vector")
   }
-  
+
   # Mark standards
   df <- df %>%
     mutate(is_standard = sample_id %in% standard_names)
-  
+
   n_stds <- sum(df$is_standard, na.rm = TRUE)
-  
+
   if (verbose) {
     cat("  Found", n_stds, "standard measurements\n")
     cat("  ✓ Standards identified\n\n")
   }
-  
+
   return(df)
 }
 
@@ -69,30 +67,30 @@ identify_standards <- function(df, standard_names, verbose = TRUE) {
 #' Consider this an error to investigate.
 #'
 extract_standards <- function(df, stds_reference_df, config = NULL, verbose = TRUE) {
-  
+
   if (verbose) cat("Extracting standards\n")
-  
+
   # Filter to standards only
   stds_df <- df %>%
     filter(is_standard == TRUE)
-  
+
   if (verbose) {
     cat("  Standards to process:", nrow(stds_df), "measurements\n")
   }
-  
+
   # Validate reference database
   if (!is.data.frame(stds_reference_df)) {
     stop("stds_reference_df must be a dataframe")
   }
-  
+
   if (!"standard_id" %in% colnames(stds_reference_df)) {
     stop("stds_reference_df must have 'standard_id' column")
   }
-  
+
   # Rename reference value before joining so measured and reference values are explicit
   stds_reference_df <- stds_reference_df %>%
     rename(delta_value_reference = delta_value)
-  
+
   # Merge with reference database
   stds_df <- left_join(
     stds_df,
@@ -100,22 +98,22 @@ extract_standards <- function(df, stds_reference_df, config = NULL, verbose = TR
     by = c("sample_id" = "standard_id"),
     relationship = "many-to-one"
   )
-  
+
   # Check for unmatched standards
   unmatched <- sum(is.na(stds_df$delta_value_reference))
-  
+
   if (unmatched > 0) {
     unmatched_names <- stds_df %>%
       filter(is.na(delta_value_reference)) %>%
       pull(sample_id) %>%
       unique()
-    
+
     warning(paste(
       unmatched, "standard measurements not found in reference database:",
       paste(unmatched_names, collapse = ", ")
     ))
   }
-  
+
   if (verbose) {
     cat("  Merged with reference database\n")
     if (unmatched > 0) {
@@ -123,6 +121,6 @@ extract_standards <- function(df, stds_reference_df, config = NULL, verbose = TR
     }
     cat("  ✓ Standards extracted\n\n")
   }
-  
+
   return(stds_df)
 }

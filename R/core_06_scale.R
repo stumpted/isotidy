@@ -7,13 +7,11 @@
 #   - build_scale_model(): Linear regression: reference_delta ~ measured_delta
 #   - apply_scale_correction(): Convert to reference scale
 #
-# Dependencies: tidyverse
+# Dependencies:
 # Used by: All pipelines
 # Requires: Standards with all previous corrections applied
 # Purpose: Convert machine-specific measurements to universal reference scale
 # ============================================================================
-
-library(tidyverse)
 
 # ============================================================================
 
@@ -68,11 +66,11 @@ build_scale_model <- function(
   config = NULL,
   verbose = TRUE
 ) {
-  
+
   if (verbose) cat("Building scale calibration model\n")
   if (verbose) cat("  Measured column:", delta_column, "\n")
   if (verbose) cat("  Reference column:", reference_column, "\n")
-  
+
   # Merge data with reference values
   stds_with_ref <- corrected_stds_df %>%
     left_join(
@@ -80,59 +78,59 @@ build_scale_model <- function(
         select(Identifier.1, all_of(reference_column)),
       by = c("sample_id" = "Identifier.1")
     )
-  
+
   # Check for missing values
   unmatched <- sum(is.na(stds_with_ref[[reference_column]]))
   if (unmatched > 0) {
     warning(paste(unmatched, "standards not found in reference database"))
   }
-  
+
   # Prepare model data
   model_df <- stds_with_ref %>%
     select(all_of(c(reference_column, delta_column))) %>%
     filter(!is.na(get(reference_column)), !is.na(get(delta_column)))
-  
+
   if (nrow(model_df) < 3) {
     stop(paste("Need at least 3 matched standards, got", nrow(model_df)))
   }
-  
+
   if (verbose) {
     cat("  Standards used:", nrow(model_df), "\n")
   }
-  
+
   # Build linear model: reference ~ measured
   formula <- as.formula(paste(reference_column, "~", delta_column))
   model <- lm(formula, data = model_df)
-  
+
   # Extract coefficients and statistics
   summary_coefs <- coef(summary(model))
   slope <- summary_coefs[delta_column, 1]
   intercept <- summary_coefs["(Intercept)", 1]
-  
+
   model_summary <- summary(model)
   r_squared <- model_summary$r.squared
-  
+
   if (verbose) {
     cat("  Slope:", round(slope, 6), "\n")
     cat("  Intercept:", round(intercept, 4), "per mil\n")
     cat("  R²:", round(r_squared, 4), "\n")
-    
+
     # Quality interpretation
     if (abs(slope - 1) > 0.05) {
       warning(paste("  ⚠ Slope deviates from 1:", round(slope, 4)))
     }
-    
+
     if (abs(intercept) > 1) {
       warning(paste("  ⚠ Large intercept:", round(intercept, 4), "‰"))
     }
-    
+
     if (r_squared < 0.95) {
       warning(paste("  ⚠ R² is low:", round(r_squared, 4)))
     }
-    
+
     cat("  ✓ Scale model built\n\n")
   }
-  
+
   return(list(
     model = model,
     slope = slope,
@@ -166,38 +164,38 @@ build_scale_model <- function(
 #' This column is what goes into prepare_output().
 #'
 apply_scale_correction <- function(df, scale_model, verbose = TRUE) {
-  
+
   if (verbose) cat("Applying scale correction\n")
-  
+
   # Use the appropriate delta column from the model
   delta_col <- scale_model$delta_column
   ref_col <- scale_model$reference_column
-  
+
   if (!delta_col %in% colnames(df)) {
     stop(paste("Delta column not found:", delta_col))
   }
-  
+
   if (verbose) {
     cat("  Scale:", sub("std\\.", "", ref_col), "\n")
   }
-  
+
   # Apply scale correction
   df$delta_value_final <- (
     df[[delta_col]] * scale_model$slope + scale_model$intercept
   )
-  
+
   if (verbose) {
-    cat("  Before:", 
+    cat("  Before:",
         round(min(df[[delta_col]], na.rm = TRUE), 2), "to",
         round(max(df[[delta_col]], na.rm = TRUE), 2), "per mil\n")
-    
+
     cat("  After:",
         round(min(df$delta_value_final, na.rm = TRUE), 2), "to",
         round(max(df$delta_value_final, na.rm = TRUE), 2), "per mil\n")
-    
+
     cat("  ✓ Scale correction applied\n\n")
   }
-  
+
   return(df)
 }
 

@@ -7,12 +7,10 @@
 #   - prepare_output(): Select columns, format for export
 #   - summarize_calibrations(): Quality metrics summary
 #
-# Dependencies: tidyverse
+# Dependencies:
 # Used by: All pipelines (final step)
 # Purpose: Format results for saving and publication
 # ============================================================================
-
-library(tidyverse)
 
 # ============================================================================
 
@@ -42,7 +40,7 @@ library(tidyverse)
 #' c("run_id", "sample_id", "element", "delta_value_final", "amount")
 #'
 #' Detailed (with intermediate corrections):
-#' c("run_id", "sample_id", "delta_value", 
+#' c("run_id", "sample_id", "delta_value",
 #'   "delta_value_blank_corrected", "delta_value_linearity_corrected",
 #'   "delta_value_final", "amount")
 #'
@@ -51,35 +49,35 @@ library(tidyverse)
 #'   "area_or_voltage", "instrument")
 #'
 prepare_output <- function(df, output_cols = NULL, verbose = TRUE) {
-  
+
   if (verbose) cat("Preparing output\n")
-  
+
   # Set defaults if not specified
   if (is.null(output_cols)) {
     output_cols <- c("run_id", "sample_id", "element",
                      "delta_value_final", "amount")
   }
-  
+
   if (verbose) {
     cat("  Output columns:", paste(output_cols, collapse = ", "), "\n")
   }
-  
+
   # Validate that all requested columns exist
   missing_cols <- setdiff(output_cols, colnames(df))
   if (length(missing_cols) > 0) {
     stop(paste("Missing output columns:", paste(missing_cols, collapse = ", "),
                "\nAvailable columns:", paste(colnames(df), collapse = ", ")))
   }
-  
+
   # Select output columns
   output_df <- df[output_cols]
-  
+
   if (verbose) {
     cat("  Rows:", nrow(output_df), "\n")
     cat("  Columns:", ncol(output_df), "\n")
     cat("  ✓ Output prepared\n\n")
   }
-  
+
   return(output_df)
 }
 
@@ -113,7 +111,7 @@ prepare_output <- function(df, output_cols = NULL, verbose = TRUE) {
 #' 3 scale       1.0125     0.456     0.998      5
 #'
 summarize_calibrations <- function(models) {
-  
+
   # Handle empty list
   if (length(models) == 0) {
     return(tibble(
@@ -124,11 +122,11 @@ summarize_calibrations <- function(models) {
       n_stds = integer()
     ))
   }
-  
+
   # Build summary row by row
   summary_rows <- lapply(names(models), function(name) {
     model_info <- models[[name]]
-    
+
     tibble(
       calibration = name,
       slope = round(model_info$slope %||% NA, 8),
@@ -137,10 +135,10 @@ summarize_calibrations <- function(models) {
       n_stds = model_info$n_stds %||% NA_integer_
     )
   })
-  
+
   # Combine all rows
   cal_summary <- bind_rows(summary_rows)
-  
+
   return(cal_summary)
 }
 
@@ -156,14 +154,14 @@ summarize_calibrations <- function(models) {
 #'
 #' @return Invisible - prints to console
 #'
-print_results_summary <- function(results, show_calibrations = TRUE, 
+print_results_summary <- function(results, show_calibrations = TRUE,
                                   show_blanks = TRUE) {
-  
+
   cat("\n")
   cat("════════════════════════════════════════════════════════\n")
   cat("PROCESSING RESULTS SUMMARY\n")
   cat("════════════════════════════════════════════════════════\n\n")
-  
+
   # Experiment info
   if (!is.null(results$config)) {
     cat("EXPERIMENT:\n")
@@ -171,20 +169,20 @@ print_results_summary <- function(results, show_calibrations = TRUE,
     cat("  File:", results$config$file_name, "\n")
     cat("  Instrument:", results$data$instrument[1], "\n\n")
   }
-  
+
   # Output summary
   cat("OUTPUT:\n")
   cat("  Samples processed:", nrow(results$data), "\n")
   cat("  Columns:", ncol(results$data), "\n")
   cat("  Saved to:", results$config$output_file_path, "\n\n")
-  
+
   # Blank correction info
   if (show_blanks && !is.null(results$blank_stats)) {
     cat("BLANK CORRECTION:\n")
     cat("  Mean blank area:", round(results$blank_stats$mean_area, 2), "\n")
     cat("  Mean blank δ:", round(results$blank_stats$mean_delta, 4), "‰\n\n")
   }
-  
+
   # Calibration summary
   if (show_calibrations && !is.null(results$models)) {
     cat("CALIBRATION MODELS:\n")
@@ -192,10 +190,10 @@ print_results_summary <- function(results, show_calibrations = TRUE,
     print(cal_summary, n = Inf)
     cat("\n")
   }
-  
+
   # Quality checks
   cat("QUALITY CHECKS:\n")
-  
+
   if (!is.null(results$models)) {
     # Check mass model
     if (!is.null(results$models$mass)) {
@@ -203,36 +201,36 @@ print_results_summary <- function(results, show_calibrations = TRUE,
       status <- if (r2 > 0.99) "✓ Good" else if (r2 > 0.95) "⚠ OK" else "✗ Poor"
       cat("  Mass calibration R²:", round(r2, 4), status, "\n")
     }
-    
+
     # Check linearity model
     if (!is.null(results$models$linearity)) {
       r2 <- results$models$linearity$r_squared
       status <- if (r2 > 0.95) "✓ Good" else if (r2 > 0.80) "⚠ OK" else "✗ Poor"
       cat("  Linearity calibration R²:", round(r2, 4), status, "\n")
     }
-    
+
     # Check scale model
     if (!is.null(results$models$scale)) {
       r2 <- results$models$scale$r_squared
       slope <- results$models$scale$slope
       intercept <- results$models$scale$intercept
-      
+
       slope_ok <- abs(slope - 1) < 0.05
       intercept_ok <- abs(intercept) < 1
-      
+
       r2_status <- if (r2 > 0.99) "✓" else if (r2 > 0.95) "⚠" else "✗"
       slope_status <- if (slope_ok) "✓" else "⚠"
       intercept_status <- if (intercept_ok) "✓" else "⚠"
-      
+
       cat("  Scale calibration R²:", round(r2, 4), r2_status, "\n")
       cat("    Slope:", round(slope, 6), slope_status, "\n")
       cat("    Intercept:", round(intercept, 4), intercept_status, "\n")
     }
   }
-  
+
   cat("\n")
   cat("════════════════════════════════════════════════════════\n\n")
-  
+
   return(invisible(NULL))
 }
 

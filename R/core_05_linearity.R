@@ -4,11 +4,9 @@
 #   - build_linearity_model(): Calibrate δ error against area
 #   - apply_linearity_correction(): Remove area-dependent δ bias
 #
-# Dependencies: tidyverse
+# Dependencies:
 # Used by: EA, maybe TC/EA
 # Requires: One calibration standard measured at multiple amounts
-
-library(tidyverse)
 
 #' Build linearity correction model
 #'
@@ -29,9 +27,9 @@ build_linearity_model <- function(
     verbose = TRUE,
     create_plot = TRUE
 ) {
-  
+
   if (verbose) cat("Building linearity correction model\n")
-  
+
   # Select the measured delta column.
   if ("delta_value_blank_corrected" %in% colnames(stds_df)) {
     delta_col <- "delta_value_blank_corrected"
@@ -40,9 +38,9 @@ build_linearity_model <- function(
     delta_col <- "delta_value"
     using_col <- "raw δ"
   }
-  
+
   if (verbose) cat("  Using", using_col, "values\n")
-  
+
   # Prepare data for the model using the selected calibration standards.
   model_df <- stds_df %>%
     dplyr::select(
@@ -54,7 +52,7 @@ build_linearity_model <- function(
       !is.na(.data[[delta_col]]),
       !is.na(area_or_voltage)
     )
-  
+
   if (nrow(model_df) < 3) {
     stop(
       paste(
@@ -63,49 +61,49 @@ build_linearity_model <- function(
       )
     )
   }
-  
+
   # Fit the linearity model.
   formula <- stats::as.formula(
     paste(delta_col, "~ area_or_voltage")
   )
-  
+
   model <- stats::lm(
     formula,
     data = model_df
   )
-  
+
   # Extract model statistics.
   summary_coefs <- summary(model)$coefficients
-  
+
   slope <- summary_coefs[
     "area_or_voltage",
     "Estimate"
   ]
-  
+
   intercept <- summary_coefs[
     "(Intercept)",
     "Estimate"
   ]
-  
+
   model_summary <- summary(model)
-  
+
   r_squared <- model_summary$r.squared
   rse <- model_summary$sigma
-  
+
   if (verbose) {
-    
+
     cat(
       "  Linearity slope:",
       round(slope, 8),
       "‰ per area unit\n"
     )
-    
+
     cat(
       "  Intercept:",
       round(intercept, 4),
       "‰\n"
     )
-    
+
     cat(
       "  R²:",
       round(r_squared, 4),
@@ -113,30 +111,30 @@ build_linearity_model <- function(
       nrow(model_df),
       "calibration standards)\n"
     )
-    
+
     cat(
       "  RSE:",
       round(rse, 4),
       "‰\n"
     )
-    
+
     # Interpret the slope.
     if (abs(slope) < 0.0001) {
-      
+
       cat(
         "  Interpretation: Negligible linearity effect\n"
       )
-      
+
     } else {
-      
+
       effect_per_1000 <- slope * 1000
-      
+
       direction <- if (slope > 0) {
         "more positive"
       } else {
         "more negative"
       }
-      
+
       cat(
         "  Interpretation: 1000 area units →",
         round(effect_per_1000, 2),
@@ -145,9 +143,9 @@ build_linearity_model <- function(
         "\n"
       )
     }
-    
+
     if (r_squared < 0.50) {
-      
+
       warning(
         paste(
           "  ⚠ R² is low:",
@@ -157,15 +155,15 @@ build_linearity_model <- function(
       )
     }
   }
-  
+
   # Create the calibration plot.
   plot <- NULL
-  
+
   if (create_plot) {
-    
+
     # Use exactly the data used to fit the linearity model.
     plot_df <- model_df
-    
+
     plot <- ggplot(
       plot_df,
       aes(
@@ -173,17 +171,17 @@ build_linearity_model <- function(
         y = .data[[delta_col]]
       )
     ) +
-      
+
       geom_point(
         size = 3,
         alpha = 0.75
       ) +
-      
+
       geom_smooth(
         method = "lm",
         se = FALSE
       ) +
-      
+
       labs(
         x = "Peak Area",
         y = "Measured δ (‰)",
@@ -192,9 +190,9 @@ build_linearity_model <- function(
           config$element %||% "C"
         )
       ) +
-      
+
       theme_minimal() +
-      
+
       theme(
         plot.title = element_text(
           face = "bold",
@@ -202,11 +200,11 @@ build_linearity_model <- function(
         )
       )
   }
-  
+
   if (verbose) {
     cat("  ✓ Linearity model built\n\n")
   }
-  
+
   return(
     list(
       model = model,
@@ -236,7 +234,7 @@ apply_linearity_correction <- function(
     linearity_model,
     verbose = TRUE
 ) {
-  
+
   if (verbose) {
     cat("Applying linearity correction\n")
     cat(
@@ -245,9 +243,9 @@ apply_linearity_correction <- function(
       "\n"
     )
   }
-  
+
   delta_col <- linearity_model$delta_column
-  
+
   if (!delta_col %in% colnames(df)) {
     stop(
       paste(
@@ -257,24 +255,24 @@ apply_linearity_correction <- function(
       )
     )
   }
-  
+
   required_columns <- c(
     delta_col,
     "area_or_voltage"
   )
-  
+
   missing_columns <- setdiff(
     required_columns,
     colnames(df)
   )
-  
+
   if (length(missing_columns) > 0) {
     stop(
       "Data are missing required columns: ",
       paste(missing_columns, collapse = ", ")
     )
   }
-  
+
   # Predict the area-dependent δ error.
   predicted_error <- stats::predict(
     linearity_model$model,
@@ -282,13 +280,13 @@ apply_linearity_correction <- function(
       area_or_voltage = df$area_or_voltage
     )
   )
-  
+
   # Remove the predicted error.
   df$delta_value_linearity_corrected <-
     df[[delta_col]] - predicted_error
-  
+
   if (verbose) {
-    
+
     cat(
       "  Before:",
       round(
@@ -308,7 +306,7 @@ apply_linearity_correction <- function(
       ),
       "per mil\n"
     )
-    
+
     cat(
       "  After:",
       round(
@@ -328,9 +326,9 @@ apply_linearity_correction <- function(
       ),
       "per mil\n"
     )
-    
+
     cat("  ✓ Linearity correction applied\n\n")
   }
-  
+
   return(df)
 }

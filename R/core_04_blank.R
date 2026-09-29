@@ -6,12 +6,10 @@
 #   - calculate_blank_stats(): Summarize blank measurements
 #   - apply_blank_correction(): Subtract blank effects (multiple methods)
 #
-# Dependencies: tidyverse
+# Dependencies:
 # Used by: All pipelines
 # Supports multiple methods: "ea_area_subtraction", "mean_subtraction", "normalized"
 # ============================================================================
-
-library(tidyverse)
 
 # ============================================================================
 
@@ -40,27 +38,27 @@ library(tidyverse)
 #' - GC/IRMS: average per compound, apply to that compound
 #'
 calculate_blank_stats <- function(blank_df, n_blanks = NULL, verbose = TRUE) {
-  
+
   if (verbose) cat("Calculating blank statistics\n")
-  
+
   if (nrow(blank_df) == 0) {
     stop("blank_df has no rows. Did you filter correctly?")
   }
-  
+
   # Use number provided, or use all rows
   if (is.null(n_blanks)) {
     n_blanks <- nrow(blank_df)
   }
-  
+
   # Validate blank data
   if (any(is.na(blank_df$area_or_voltage))) {
     warning("Some blank area measurements are NA")
   }
-  
+
   if (any(is.na(blank_df$delta_value))) {
     warning("Some blank delta measurements are NA")
   }
-  
+
   # Calculate statistics
   blank_stats <- list(
     mean_area = sum(blank_df$area_or_voltage, na.rm = TRUE) / n_blanks,
@@ -69,7 +67,7 @@ calculate_blank_stats <- function(blank_df, n_blanks = NULL, verbose = TRUE) {
     sd_delta = sd(blank_df$delta_value, na.rm = TRUE),
     n_blanks = n_blanks
   )
-  
+
   if (verbose) {
     cat("  Number of blanks:", blank_stats$n_blanks, "\n")
     cat("  Mean area:", round(blank_stats$mean_area, 2), "\n")
@@ -78,7 +76,7 @@ calculate_blank_stats <- function(blank_df, n_blanks = NULL, verbose = TRUE) {
     cat("  SD δ13C:", round(blank_stats$sd_delta, 4), "per mil\n")
     cat("  ✓ Blank statistics calculated\n\n")
   }
-  
+
   return(blank_stats)
 }
 
@@ -120,53 +118,53 @@ calculate_blank_stats <- function(blank_df, n_blanks = NULL, verbose = TRUE) {
 #' Corrects for blank area relative to sample area.
 #' Intermediate between EA and mean subtraction.
 #'
-apply_blank_correction <- function(df, blank_stats, method = "ea_area_subtraction", 
+apply_blank_correction <- function(df, blank_stats, method = "ea_area_subtraction",
                                    verbose = TRUE) {
-  
+
   if (verbose) cat("Applying blank correction\n")
   if (verbose) cat("  Method:", method, "\n")
-  
+
   # Validate method
   valid_methods <- c("ea_area_subtraction", "mean_subtraction", "normalized")
   if (!method %in% valid_methods) {
     stop(paste("Unknown method. Valid options:",
                paste(valid_methods, collapse = ", ")))
   }
-  
+
   # Apply correction based on method
   if (method == "ea_area_subtraction") {
     # EA method: accounts for different blank areas
     # Formula: (area*delta - blank_area*blank_delta) / (area - blank_area)
-    
+
     df$delta_value_blank_corrected <- (
-      (df$area_or_voltage * df$delta_value - 
+      (df$area_or_voltage * df$delta_value -
        blank_stats$mean_area * blank_stats$mean_delta) /
       (df$area_or_voltage - blank_stats$mean_area)
     )
-    
+
   } else if (method == "mean_subtraction") {
     # Simple: subtract mean blank delta from all samples
     df$delta_value_blank_corrected <- df$delta_value - blank_stats$mean_delta
-    
+
   } else if (method == "normalized") {
     # Normalize by area ratio: subtract (blank_delta * area_ratio)
     area_ratio <- blank_stats$mean_area / df$area_or_voltage
     df$delta_value_blank_corrected <- df$delta_value - (blank_stats$mean_delta * area_ratio)
   }
-  
+
   if (verbose) {
     # Compare before and after
     cat("  Before correction: δ range",
         round(min(df$delta_value, na.rm = TRUE), 2), "to",
         round(max(df$delta_value, na.rm = TRUE), 2), "per mil\n")
-    
+
     cat("  After correction: δ range",
         round(min(df$delta_value_blank_corrected, na.rm = TRUE), 2), "to",
         round(max(df$delta_value_blank_corrected, na.rm = TRUE), 2), "per mil\n")
-    
+
     cat("  ✓ Blank correction applied\n\n")
   }
-  
+
   return(df)
 }
 

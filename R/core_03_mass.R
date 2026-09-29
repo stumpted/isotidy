@@ -5,12 +5,9 @@
 #   - build_mass_model(): Calibrate amount against area using one standard
 #   - apply_mass_correction(): Apply model to all samples
 #
-# Dependencies: tidyverse
+# Dependencies:
 # Used by: EA, TC/EA (maybe)
 # NOT used by: GC/IRMS, LC/IRMS
-
-library(tidyverse)
-
 
 #' Calculate elemental amounts for standards
 #'
@@ -28,7 +25,7 @@ prepare_mass_standards <- function(
     config = NULL,
     verbose = TRUE
 ) {
-  
+
   if (verbose) {
     cat(
       "Preparing mass standards for element",
@@ -36,24 +33,24 @@ prepare_mass_standards <- function(
       "\n"
     )
   }
-  
+
   required_columns <- c(
     "amount",
     "element_fraction"
   )
-  
+
   missing_columns <- setdiff(
     required_columns,
     colnames(stds_df)
   )
-  
+
   if (length(missing_columns) > 0) {
     stop(
       "Mass standards are missing required columns: ",
       paste(missing_columns, collapse = ", ")
     )
   }
-  
+
   if (any(
     !is.na(stds_df$element_fraction) &
     (
@@ -65,18 +62,18 @@ prepare_mass_standards <- function(
       "'element_fraction' must contain values between 0 and 1."
     )
   }
-  
+
   amount_col <- paste0(element, ".Amount")
-  
+
   stds_df[[amount_col]] <-
     stds_df$amount * stds_df$element_fraction
-  
+
   if (verbose) {
-    
+
     valid_amounts <- stds_df[[amount_col]][
       !is.na(stds_df[[amount_col]])
     ]
-    
+
     if (length(valid_amounts) > 0) {
       cat("  Elemental amounts calculated\n")
       cat(
@@ -87,10 +84,10 @@ prepare_mass_standards <- function(
         "\n"
       )
     }
-    
+
     cat("  ✓ Mass standards prepared\n\n")
   }
-  
+
   return(stds_df)
 }
 
@@ -116,7 +113,7 @@ build_mass_model <- function(
     verbose = TRUE,
     create_plot = TRUE
 ) {
-  
+
   if (verbose) {
     cat(
       "Building mass calibration model for",
@@ -124,31 +121,31 @@ build_mass_model <- function(
       "\n"
     )
   }
-  
+
   # Check configuration
   if (is.null(config)) {
     stop(
       "An experiment configuration is required."
     )
   }
-  
+
   if (is.null(config$standards)) {
     stop(
       "Configuration must contain a 'standards' section."
     )
   }
-  
+
   if (is.null(config$standards$calibration_standards)) {
     stop(
       "Configuration must contain ",
       "'standards$calibration_standards'."
     )
   }
-  
+
   # Get the configured calibration standard
   calibration_standard <-
     config$standards$calibration_standards[[element]]
-  
+
   if (
     is.null(calibration_standard) ||
     is.na(calibration_standard) ||
@@ -161,44 +158,44 @@ build_mass_model <- function(
       "config$standards$calibration_standards."
     )
   }
-  
+
   # Check standard data
   if (!is.data.frame(stds_df)) {
     stop(
       "'stds_df' must be a data frame."
     )
   }
-  
+
   if (nrow(stds_df) == 0) {
     stop(
       "'stds_df' contains no rows."
     )
   }
-  
+
   # Check sample identifier
   if (!"sample_id" %in% colnames(stds_df)) {
     stop(
       "Mass calibration data must contain 'sample_id'."
     )
   }
-  
+
   # Determine amount column
   amount_col <- paste0(
     element,
     ".Amount"
   )
-  
+
   required_columns <- c(
     amount_col,
     "area_or_voltage",
     "sample_id"
   )
-  
+
   missing_columns <- setdiff(
     required_columns,
     colnames(stds_df)
   )
-  
+
   if (length(missing_columns) > 0) {
     stop(
       "Mass calibration data are missing required columns: ",
@@ -208,7 +205,7 @@ build_mass_model <- function(
       )
     )
   }
-  
+
   # Select the configured calibration standard
   model_df <- stds_df %>%
     dplyr::filter(
@@ -223,7 +220,7 @@ build_mass_model <- function(
       !is.na(.data[[amount_col]]),
       !is.na(area_or_voltage)
     )
-  
+
   # Check number of valid measurements
   if (nrow(model_df) < 3) {
     stop(
@@ -239,7 +236,7 @@ build_mass_model <- function(
       )
     )
   }
-  
+
   # Check variation in peak area
   if (
     dplyr::n_distinct(
@@ -255,7 +252,7 @@ build_mass_model <- function(
       )
     )
   }
-  
+
   # Build the mass calibration model
   formula <- stats::as.formula(
     paste(
@@ -263,52 +260,52 @@ build_mass_model <- function(
       "~ area_or_voltage"
     )
   )
-  
+
   model <- stats::lm(
     formula,
     data = model_df
   )
-  
+
   # Extract model coefficients
   summary_coefs <- summary(model)$coefficients
-  
+
   slope <- summary_coefs[
     "area_or_voltage",
     "Estimate"
   ]
-  
+
   intercept <- summary_coefs[
     "(Intercept)",
     "Estimate"
   ]
-  
+
   # Extract model statistics
   model_summary <- summary(model)
-  
+
   r_squared <- model_summary$r.squared
   rse <- model_summary$sigma
-  
+
   # Print model information
   if (verbose) {
-    
+
     cat(
       "  Calibration standard:",
       calibration_standard,
       "\n"
     )
-    
+
     cat(
       "  Slope:",
       round(slope, 8),
       "\n"
     )
-    
+
     cat(
       "  Intercept:",
       round(intercept, 6),
       "\n"
     )
-    
+
     cat(
       "  R²:",
       round(r_squared, 4),
@@ -316,13 +313,13 @@ build_mass_model <- function(
       nrow(model_df),
       "measurements)\n"
     )
-    
+
     cat(
       "  RSE:",
       round(rse, 4),
       "\n"
     )
-    
+
     if (r_squared < 0.95) {
       warning(
         paste(
@@ -332,17 +329,17 @@ build_mass_model <- function(
         )
       )
     }
-    
+
     cat(
       "  ✓ Mass model built\n\n"
     )
   }
-  
+
   # Create diagnostic plot
   plot <- NULL
-  
+
   if (create_plot) {
-    
+
     plot_df <- model_df %>%
       dplyr::mutate(
         predicted = stats::predict(
@@ -352,7 +349,7 @@ build_mass_model <- function(
         residuals =
           .data[[amount_col]] - predicted
       )
-    
+
     plot <- ggplot(
       plot_df,
       aes(
@@ -360,17 +357,17 @@ build_mass_model <- function(
         y = .data[[amount_col]]
       )
     ) +
-      
+
       geom_point(
         size = 3,
         alpha = 0.7
       ) +
-      
+
       geom_smooth(
         method = "lm",
         se = TRUE
       ) +
-      
+
       labs(
         x = "Peak Area",
         y = paste0(
@@ -388,9 +385,9 @@ build_mass_model <- function(
           round(r_squared, 4)
         )
       ) +
-      
+
       theme_minimal() +
-      
+
       theme(
         plot.title = element_text(
           face = "bold",
@@ -401,7 +398,7 @@ build_mass_model <- function(
         )
       )
   }
-  
+
   # Return model and calibration information
   return(
     list(
@@ -436,74 +433,74 @@ apply_mass_correction <- function(
     config = NULL,
     verbose = TRUE
 ) {
-  
+
   element <- mass_model$element
-  
+
   if (verbose) {
     cat(
       "Applying mass correction for",
       element,
       "\n"
     )
-    
+
     cat(
       "  Calibration standard:",
       mass_model$calibration_standard,
       "\n"
     )
   }
-  
+
   amount_col <- paste0(
     element,
     ".Amount"
   )
-  
+
   percent_col <- paste0(
     element,
     ".Percent"
   )
-  
+
   required_columns <- c(
     "area_or_voltage",
     "amount"
   )
-  
+
   missing_columns <- setdiff(
     required_columns,
     colnames(df)
   )
-  
+
   if (length(missing_columns) > 0) {
     stop(
       "Data are missing required canonical columns: ",
       paste(missing_columns, collapse = ", ")
     )
   }
-  
+
   pred_df <- data.frame(
     area_or_voltage = df$area_or_voltage
   )
-  
+
   df[[amount_col]] <- stats::predict(
     mass_model$model,
     newdata = pred_df
   )
-  
+
   df[[percent_col]] <-
     (df[[amount_col]] / df$amount) * 100
-  
+
   if (verbose) {
-    
+
     cat(
       "  Applied to",
       nrow(df),
       "samples\n"
     )
-    
+
     sample_amounts <- df[[amount_col]][
       !is.na(df[[amount_col]])
     ]
-    
+
     if (length(sample_amounts) > 0) {
       cat(
         "  Range:",
@@ -513,9 +510,9 @@ apply_mass_correction <- function(
         "\n"
       )
     }
-    
+
     cat("  ✓ Mass correction applied\n\n")
   }
-  
+
   return(df)
 }
