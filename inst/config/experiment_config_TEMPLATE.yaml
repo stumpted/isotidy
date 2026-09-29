@@ -1,0 +1,78 @@
+# ============================================================================
+# EA Pipeline Configuration - YAML Format
+# ============================================================================
+# This file documents all parameters used for processing your EA data.
+# Keep it in your analyzed_data folder alongside your results.
+#
+# Edit this file to match your specific experiment, then load it in R with:
+#   config <- create_ea_config_from_yaml("path/to/this/file.yaml")
+# ============================================================================
+
+experiment:
+  # Name matching your data folder in data/
+  name: "202605_bulk_light_experiment"
+  
+  # Raw data filename without extension
+  file_name: "20260501_EA_diatom_C"
+  
+  #Which peripheral is this experiment using?
+  peripheral: "EA"
+  
+  # Brief description of what this experiment was
+  description: "Bulk C isotope measurements of diatom cultures"
+
+# ============================================================================
+standards:
+  # Which standards were used in this run (must exist in EA_lab_stds.xlsx)
+  used:
+    - TTAS
+    - SERC0
+    - SERC1
+  
+  # Which standard to use for calibrating each element
+  # Format: ELEMENT: STANDARD_NAME
+  calibration_dict:
+    C: SERC0
+
+# ============================================================================
+processing:
+  # Element being processed in this experiment
+  element: C
+
+  # Number of blank capsules used in this run
+  blank_num: 20
+  
+  # Which peak number to use (typically 3 for center peak)
+  peak_number: 3
+
+# ============================================================================
+paths:
+  # Leave these as NULL to use default structure:
+  # - raw_data_dir: data/{experiment.name}/raw_data/
+  # - output_dir: data/{experiment.name}/analyzed_data/
+  # - stds_data_path: scripts/inst/config/lab_standards.yml
+  #
+  # Only fill these in if your structure is non-standard:
+  
+  raw_data_dir: null      # Leave as null to use default
+  output_dir: null        # Leave as null to use default
+  stds_data_path: null    # Leave as null to use default
+
+# ============================================================================
+notes: |
+  Add any notes about this run here.
+  Multiple lines are fine.
+  For example:
+    - Instrument was recalibrated on 2026-05-01
+    - Sample set 1-5 had higher noise due to weather
+    - TTAS standard ran as quality check only
+
+# ============================================================================
+# Additional metadata (optional, for your records)
+# ============================================================================
+
+metadata:
+  date_run: "2026-05-01"
+  analyst: "Annie Edwards"
+  instrument: "EA-IRMS"
+  weather_notes: "Stable, low humidity"

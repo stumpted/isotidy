@@ -1,0 +1,45 @@
+---
+title: "README"
+output: html_document
+date: "2026-09-15"
+author: "Annie C. Edwards"
+---
+
+## Configuration Files
+
+This folder contains the configuration files used by the IRMS data-processing pipeline.
+
+### `peripheral_schemas.yml`
+
+Defines the structure of data produced by each IRMS peripheral to pass to the data processing pipeline.
+
+**Edit this file when:** an instrument's file format or data structure changes, or to add another peripheral by copying the format of those already in the file.
+
+### `isotope_systems.yml`
+
+Defines the isotope systems supported by the pipeline and their nomenclature.
+
+This file contains isotope-specific information such as isotope names, ratios, and delta notation.
+
+**Edit this file when:** adding a new isotope system or changing how an isotope system is defined.
+
+### `lab_standards.yml`
+
+Defines the standards used by a particular lab for each peripheral and isotope system.
+
+Standards can be assigned different roles, such as:
+
+* Calibration standards
+* Quality-control standards
+* Blanks
+* Reference materials
+
+This file is intended to be **lab-specific and easily editable**.
+
+**Edit this file when:** your lab changes its standards or when configuring the pipeline for a different lab.
+
+### `gc_compound_library.yml`
+
+A library with compounds analyzed on the GC.
+
+**Edit this file when:** adding relevant compounds to your GC analysis pipeline.

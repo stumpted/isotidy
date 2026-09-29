@@ -1,0 +1,154 @@
+# IRMS Pipeline: Peripheral Data Schemas
+# Defines column mappings, data shapes, validation rules, and isotope systems
+# for each instrument.
+#
+# The isotope system is selected independently of the peripheral.
+# Add new isotope systems under isotope_systems, then add the corresponding
+# column names to each peripheral that supports them.
+
+
+# Isotope systems
+
+isotope_systems:
+  C13:
+    name: "Carbon-13"
+    ratio: "13C/12C"
+    delta_name: "δ13C"
+  N15:
+    name: "Nitrogen-15"
+    ratio: "15N/14N"
+    delta_name: "δ15N"
+
+# Peripheral schemas
+
+ea_irms:
+  name: "Elemental Analyzer IRMS"
+  description: "Bulk isotope analysis via elemental combustion"
+  data_shape: "sample_per_row"
+  analysis_type: "bulk"
+
+  # Column mappings: internal_name -> actual_column_name
+  # The loader will rename columns to internal names for consistent processing
+  column_mapping:
+    identifier: "Identifier.1"
+    amount: "Amount"
+    peak_number: "Peak.Nr"
+
+    # Isotope-dependent mappings
+    isotope_ratio:
+      C13: "d.13C.12C"
+      N15: "d.15N.14N"
+
+    area_all: "Area.All"
+    area_44: "Area 44"
+    area_45: "Area 45"
+    area_46: "Area 46"
+    amplitude_44: "Ampl  44"
+    amplitude_45: "Ampl  45"
+    amplitude_46: "Ampl  46"
+    bgd_44: "BGD 44"
+    bgd_45: "BGD 45"
+    bgd_46: "BGD 46"
+    time: "Time Code"
+
+  # Data validation
+  validation:
+    # Keep only these peak numbers (center peak typically)
+    peak_numbers_to_keep: [3]
+    # Exclude these identifiers (QA/QC, setup/teardown)
+    exclude_identifiers: ["on_off", "linearity"]
+    # Required columns (must be present after isotope-specific mapping)
+    required_columns: ["identifier", "peak_number", "isotope_ratio", "area_all"]
+
+  # Metadata and calibration
+  metadata:
+    use_standards_database: true
+    standards_db_path: "scripts/inst/config/lab_standards.yml"
+    standards_match_column: "identifier"
+    blank_identifier_pattern: "Blank"
+
+  # Replicate identification
+  # Technical replicates share same sample but run sequentially
+  # Pattern can be regex or column-based
+  replicates:
+    identify_by: "name_pattern"
+    pattern: "^(.+?)(_\\d+)?$"
+    group_column: null
+
+
+gc_irms:
+  name: "Gas Chromatograph IRMS (Compound-Specific)"
+  description: "Compound-specific isotope analysis"
+  data_shape: "compound_per_row"
+  analysis_type: "compound_specific"
+
+  column_mapping:
+    peak_number: "Peak"
+    compound_name: "Analyte"
+
+    # Isotope-dependent mappings
+    isotope_ratio_raw:
+      C13: "δ13C"
+    isotope_ratio_measured:
+      C13: "measured"
+    isotope_ratio_corrected:
+      C13: "measured.1"
+
+    rms_error: "RMS error.1"
+    delta_delta: "Dd"
+    # Reference gas info
+    co2_ref_value: "CO2 Reference Gas"
+
+  validation:
+    # Exclude CO2 reference (or keep it with special flag)
+    exclude_compounds: ["CO2"]
+    # Required columns (after isotope-specific mapping)
+    required_columns: ["peak_number", "compound_name", "isotope_ratio_corrected"]
+
+  metadata:
+    compound_library_path: "config/gc_compound_library.yml"
+    use_reference_gas: true
+
+  replicates:
+    identify_by: "name_pattern"
+    # Fatty acids/AAs often labeled like: C14M (methyl) and C14E (ether)
+    # - same compound, different ester
+    pattern: "^([A-Z0-9]+)([ME])$"
+    group_column: null
+
+  # GC-specific preprocessing
+  preprocessing:
+    # Skip rows at top (metadata, headers)
+    skip_rows: [0, 1, 2]
+    header_row: 3
+    # Multiple sections possible if multiple samples in one sheet
+    auto_detect_sections: true
+
+
+gasbench_irms:
+  name: "Gasbench IRMS"
+  description: "High-throughput bulk isotope analysis"
+  data_shape: "sample_per_row"
+  analysis_type: "bulk"
+
+  column_mapping:
+    identifier: "Sample"
+
+    # Isotope-dependent mapping
+    isotope_ratio:
+      C13: "d13C"
+
+    area: "Amplitude"
+    reference_delta: "Reference delta"
+    delta_difference: "Dd"
+
+  validation:
+    required_columns: ["identifier", "isotope_ratio"]
+
+  metadata:
+    use_standards_database: false  # Gasbench often self-calibrating
+
+  replicates:
+    identify_by: "name_pattern"
+    pattern: "^(.+?)(_\\d+)?$"
+    group_column: null

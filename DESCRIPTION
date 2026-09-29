@@ -1,0 +1,10 @@
+Package: isotidy
+Title: Standardize and Process Isotope Ratio Mass Spectrometry Data
+Version: 0.0.0.9000
+Authors@R: 
+    person("Annie C.", "Edwards", , "acedwards@caltech.edu", role = c("aut", "cre"))
+Description: Customizable tools for importing, standardizing, validating, and processing IRMS data from multiple peripherals. Consolidates configurable peripheral outputs into single canonical dataset for further processing.
+License: MIT + file LICENSE
+Config/roxygen2/version: 8.1.0
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)

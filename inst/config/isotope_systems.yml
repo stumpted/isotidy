@@ -1,0 +1,11 @@
+# Isotope systems. Modify how a system is handled in pheripheral_schemas.yml whenever adding an isotope system.
+
+isotope_systems:
+  C13:
+    name: "Carbon-13"
+    ratio: "13C/12C"
+    delta_name: "δ13C"
+  N15:
+    name: "Nitrogen-15"
+    ratio: "15N/14N"
+    delta_name: "δ15N"

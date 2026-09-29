@@ -1,0 +1,33 @@
+# IRMS Pipeline: Lab standards
+# Defines standard names and isotope values for specific systems within the Sessions Lab
+# updated 2026/09/28
+
+TTAS:
+  element: C
+  delta_value: -12.01
+  delta_uncertainty: 0.05
+  scale: VPDB
+  element_fraction: 0.40
+  standard_id: TTAS
+  applicable_peripherals:
+    - EA
+
+SERC0:
+  element: C
+  delta_value: -36.26
+  delta_uncertainty: 0.03
+  scale: VPDB
+  element_fraction: 0.34
+  standard_id: SERC0
+  applicable_peripherals:
+    - EA
+
+SERC1:
+  element: C
+  delta_value: -20.35
+  delta_uncertainty: 0.04
+  scale: VPDB
+  element_fraction: 0.34
+  standard_id: SERC1
+  applicable_peripherals:
+    - EA
