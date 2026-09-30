@@ -59,88 +59,134 @@
 #' - R² should be high (> 0.99)
 #'
 build_scale_model <- function(
-  corrected_stds_df,
-  stds_reference_df,
-  delta_column = "delta_value_linearity_corrected",
-  reference_column = "std.d13C.VPDB",
-  config = NULL,
-  verbose = TRUE
+    stds_df,
+    delta_column = "delta_value_linearity_corrected",
+    reference_column = "delta_value_reference",
+    config = NULL,
+    verbose = TRUE
 ) {
 
-  if (verbose) cat("Building scale calibration model\n")
-  if (verbose) cat("  Measured column:", delta_column, "\n")
-  if (verbose) cat("  Reference column:", reference_column, "\n")
-
-  # Merge data with reference values
-  stds_with_ref <- corrected_stds_df %>%
-    left_join(
-      stds_reference_df %>%
-        select(Identifier.1, all_of(reference_column)),
-      by = c("sample_id" = "Identifier.1")
-    )
-
-  # Check for missing values
-  unmatched <- sum(is.na(stds_with_ref[[reference_column]]))
-  if (unmatched > 0) {
-    warning(paste(unmatched, "standards not found in reference database"))
+  if (verbose) {
+    cat("Building scale calibration model\n")
+    cat("  Measured column:", delta_column, "\n")
+    cat("  Reference column:", reference_column, "\n")
   }
 
-  # Prepare model data
-  model_df <- stds_with_ref %>%
-    select(all_of(c(reference_column, delta_column))) %>%
-    filter(!is.na(get(reference_column)), !is.na(get(delta_column)))
+  required_columns <- c(
+    "sample_id",
+    delta_column,
+    reference_column
+  )
+
+  missing_columns <- setdiff(
+    required_columns,
+    colnames(stds_df)
+  )
+
+  if (length(missing_columns) > 0) {
+    stop(
+      "Standards data are missing required columns: ",
+      paste(missing_columns, collapse = ", ")
+    )
+  }
+
+  model_df <- stds_df %>%
+    dplyr::select(
+      sample_id,
+      dplyr::all_of(c(reference_column, delta_column))
+    ) %>%
+    dplyr::filter(
+      !is.na(.data[[reference_column]]),
+      !is.na(.data[[delta_column]])
+    )
 
   if (nrow(model_df) < 3) {
-    stop(paste("Need at least 3 matched standards, got", nrow(model_df)))
+    stop(
+      paste(
+        "Need at least 3 matched standards, got",
+        nrow(model_df)
+      )
+    )
   }
 
   if (verbose) {
     cat("  Standards used:", nrow(model_df), "\n")
   }
 
-  # Build linear model: reference ~ measured
-  formula <- as.formula(paste(reference_column, "~", delta_column))
-  model <- lm(formula, data = model_df)
+  # Build linear model: reference δ ~ measured δ
+  formula <- stats::as.formula(
+    paste(
+      reference_column,
+      "~",
+      delta_column
+    )
+  )
 
-  # Extract coefficients and statistics
-  summary_coefs <- coef(summary(model))
-  slope <- summary_coefs[delta_column, 1]
-  intercept <- summary_coefs["(Intercept)", 1]
+  model <- stats::lm(
+    formula,
+    data = model_df
+  )
+
+  summary_coefs <- summary(model)$coefficients
+
+  slope <- summary_coefs[delta_column, "Estimate"]
+  intercept <- summary_coefs["(Intercept)", "Estimate"]
 
   model_summary <- summary(model)
+
   r_squared <- model_summary$r.squared
+  rse <- model_summary$sigma
 
   if (verbose) {
     cat("  Slope:", round(slope, 6), "\n")
     cat("  Intercept:", round(intercept, 4), "per mil\n")
     cat("  R²:", round(r_squared, 4), "\n")
+    cat("  RSE:", round(rse, 4), "per mil\n")
 
-    # Quality interpretation
     if (abs(slope - 1) > 0.05) {
-      warning(paste("  ⚠ Slope deviates from 1:", round(slope, 4)))
+      warning(
+        paste(
+          "⚠ Slope deviates from 1:",
+          round(slope, 4)
+        )
+      )
     }
 
     if (abs(intercept) > 1) {
-      warning(paste("  ⚠ Large intercept:", round(intercept, 4), "‰"))
+      warning(
+        paste(
+          "⚠ Large intercept:",
+          round(intercept, 4),
+          "‰"
+        )
+      )
     }
 
     if (r_squared < 0.95) {
-      warning(paste("  ⚠ R² is low:", round(r_squared, 4)))
+      warning(
+        paste(
+          "⚠ R² is low:",
+          round(r_squared, 4)
+        )
+      )
     }
 
     cat("  ✓ Scale model built\n\n")
   }
 
-  return(list(
-    model = model,
-    slope = slope,
-    intercept = intercept,
-    r_squared = r_squared,
-    delta_column = delta_column,
-    reference_column = reference_column,
-    stds_data = stds_with_ref,
-    n_stds = nrow(model_df)
-  ))
+  return(
+    list(
+      model = model,
+      slope = slope,
+      intercept = intercept,
+      r_squared = r_squared,
+      residual_std_error = rse,
+      delta_column = delta_column,
+      reference_column = reference_column,
+      stds_data = model_df,
+      n_stds = nrow(model_df)
+    )
+  )
 }
 
 # ============================================================================
@@ -176,7 +222,7 @@ apply_scale_correction <- function(df, scale_model, verbose = TRUE) {
   }
 
   if (verbose) {
-    cat("  Scale:", sub("std\\.", "", ref_col), "\n")
+    cat("  Reference scale:", scale_model$reference_column, "\n")
   }
 
   # Apply scale correction
@@ -198,7 +244,3 @@ apply_scale_correction <- function(df, scale_model, verbose = TRUE) {
 
   return(df)
 }
-
-# ============================================================================
-# End of core_06_scale.R
-# ============================================================================

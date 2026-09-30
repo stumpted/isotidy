@@ -10,16 +10,16 @@
 
 experiment:
   # Name matching your data folder in data/
-  name: "202605_bulk_light_experiment"
-  
+  name: "202605_bulk_EA"
+
   # Raw data filename without extension
-  file_name: "20260501_EA_diatom_C"
-  
+  file_name: "20260501_EA"
+
   #Which peripheral is this experiment using?
   peripheral: "EA"
-  
+
   # Brief description of what this experiment was
-  description: "Bulk C isotope measurements of diatom cultures"
+  description: "Bulk C isotope measurements"
 
 # ============================================================================
 standards:
@@ -28,10 +28,11 @@ standards:
     - TTAS
     - SERC0
     - SERC1
-  
-  # Which standard to use for calibrating each element
+
+  # Standard used for mass and linearity calibration of each element.
+  # The same standard is measured at multiple sample masses.
   # Format: ELEMENT: STANDARD_NAME
-  calibration_dict:
+  calibration_standards:
     C: SERC0
 
 # ============================================================================
@@ -41,7 +42,7 @@ processing:
 
   # Number of blank capsules used in this run
   blank_num: 20
-  
+
   # Which peak number to use (typically 3 for center peak)
   peak_number: 3
 
@@ -50,10 +51,10 @@ paths:
   # Leave these as NULL to use default structure:
   # - raw_data_dir: data/{experiment.name}/raw_data/
   # - output_dir: data/{experiment.name}/analyzed_data/
-  # - stds_data_path: scripts/inst/config/lab_standards.yml
+  # - stds_data_path: inst/config/lab_standards.yml
   #
   # Only fill these in if your structure is non-standard:
-  
+
   raw_data_dir: null      # Leave as null to use default
   output_dir: null        # Leave as null to use default
   stds_data_path: null    # Leave as null to use default
@@ -73,6 +74,6 @@ notes: |
 
 metadata:
   date_run: "2026-05-01"
-  analyst: "Annie Edwards"
+  analyst: "Annie C. Edwards"
   instrument: "EA-IRMS"
   weather_notes: "Stable, low humidity"

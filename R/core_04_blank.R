@@ -37,20 +37,52 @@
 #' - TC/EA: average all blanks, apply globally
 #' - GC/IRMS: average per compound, apply to that compound
 #'
-calculate_blank_stats <- function(blank_df, n_blanks = NULL, verbose = TRUE) {
+calculate_blank_stats <- function(
+    blank_df,
+    verbose = TRUE
+) {
 
   if (verbose) cat("Calculating blank statistics\n")
 
-  if (nrow(blank_df) == 0) {
+  if (!is.data.frame(blank_df) || nrow(blank_df) == 0) {
     stop("blank_df has no rows. Did you filter correctly?")
   }
 
-  # Use number provided, or use all rows
-  if (is.null(n_blanks)) {
-    n_blanks <- nrow(blank_df)
+  required_columns <- c(
+    "sample_id",
+    "area_or_voltage",
+    "delta_value"
+  )
+
+  missing_columns <- setdiff(
+    required_columns,
+    colnames(blank_df)
+  )
+
+  if (length(missing_columns) > 0) {
+    stop(
+      "blank_df is missing required columns: ",
+      paste(missing_columns, collapse = ", ")
+    )
   }
 
-  # Validate blank data
+  # Extract capsule count from each blank identifier.
+  # If no number is present, assume one capsule.
+  blank_df <- blank_df %>%
+    dplyr::mutate(
+      capsule_count = as.numeric(
+        stringr::str_extract(
+          sample_id,
+          "\\d+"
+        )
+      ),
+      capsule_count = dplyr::coalesce(
+        capsule_count,
+        1
+      ),
+      normalized_area = area_or_voltage / capsule_count
+    )
+
   if (any(is.na(blank_df$area_or_voltage))) {
     warning("Some blank area measurements are NA")
   }
@@ -59,21 +91,58 @@ calculate_blank_stats <- function(blank_df, n_blanks = NULL, verbose = TRUE) {
     warning("Some blank delta measurements are NA")
   }
 
-  # Calculate statistics
+  # Calculate statistics from individually normalized blank areas.
   blank_stats <- list(
-    mean_area = sum(blank_df$area_or_voltage, na.rm = TRUE) / n_blanks,
-    sd_area = sd(blank_df$area_or_voltage, na.rm = TRUE),
-    mean_delta = mean(blank_df$delta_value, na.rm = TRUE),
-    sd_delta = sd(blank_df$delta_value, na.rm = TRUE),
-    n_blanks = n_blanks
+    mean_area = mean(
+      blank_df$normalized_area,
+      na.rm = TRUE
+    ),
+    sd_area = sd(
+      blank_df$normalized_area,
+      na.rm = TRUE
+    ),
+    mean_delta = mean(
+      blank_df$delta_value,
+      na.rm = TRUE
+    ),
+    sd_delta = sd(
+      blank_df$delta_value,
+      na.rm = TRUE
+    ),
+    n_blanks = nrow(blank_df)
   )
 
   if (verbose) {
-    cat("  Number of blanks:", blank_stats$n_blanks, "\n")
-    cat("  Mean area:", round(blank_stats$mean_area, 2), "\n")
-    cat("  Mean δ13C:", round(blank_stats$mean_delta, 4), "per mil\n")
-    cat("  SD area:", round(blank_stats$sd_area, 2), "\n")
-    cat("  SD δ13C:", round(blank_stats$sd_delta, 4), "per mil\n")
+    cat(
+      "  Number of blank measurements:",
+      blank_stats$n_blanks,
+      "\n"
+    )
+
+    cat(
+      "  Mean normalized area:",
+      round(blank_stats$mean_area, 2),
+      "\n"
+    )
+
+    cat(
+      "  Mean δ13C:",
+      round(blank_stats$mean_delta, 4),
+      "per mil\n"
+    )
+
+    cat(
+      "  SD normalized area:",
+      round(blank_stats$sd_area, 2),
+      "\n"
+    )
+
+    cat(
+      "  SD δ13C:",
+      round(blank_stats$sd_delta, 4),
+      "per mil\n"
+    )
+
     cat("  ✓ Blank statistics calculated\n\n")
   }
 

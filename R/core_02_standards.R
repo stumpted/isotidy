@@ -89,7 +89,8 @@ extract_standards <- function(df, stds_reference_df, config = NULL, verbose = TR
 
   # Rename reference value before joining so measured and reference values are explicit
   stds_reference_df <- stds_reference_df %>%
-    rename(delta_value_reference = delta_value)
+    rename(delta_value_reference = delta_value) %>%
+    select(-element)
 
   # Merge with reference database
   stds_df <- left_join(

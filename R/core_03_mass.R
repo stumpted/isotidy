@@ -105,7 +105,7 @@ prepare_mass_standards <- function(
 #'
 #' @return List containing the fitted model, coefficients, statistics,
 #'   calibration standard, and optional diagnostic plot.
-
+#'
 build_mass_model <- function(
     stds_df,
     element,
@@ -129,35 +129,29 @@ build_mass_model <- function(
     )
   }
 
-  if (is.null(config$standards)) {
-    stop(
-      "Configuration must contain a 'standards' section."
-    )
-  }
-
-  if (is.null(config$standards$calibration_standards)) {
+  if (is.null(config$calibration_standards)) {
     stop(
       "Configuration must contain ",
-      "'standards$calibration_standards'."
+      "'calibration_standards'."
     )
   }
 
   # Get the configured calibration standard
-  calibration_standard <-
-    config$standards$calibration_standards[[element]]
+  calibration_standard <- config$calibration_standards
 
   if (
-    is.null(calibration_standard) ||
-    is.na(calibration_standard) ||
-    calibration_standard == ""
+    length(calibration_standard) == 0 ||
+    is.na(calibration_standard[1]) ||
+    calibration_standard[1] == ""
   ) {
     stop(
       "No calibration standard configured for element ",
       element,
-      ". Add it under ",
-      "config$standards$calibration_standards."
+      ". Add it to 'calibration_standards'."
     )
   }
+
+  calibration_standard <- calibration_standard[1]
 
   # Check standard data
   if (!is.data.frame(stds_df)) {
@@ -172,23 +166,10 @@ build_mass_model <- function(
     )
   }
 
-  # Check sample identifier
-  if (!"sample_id" %in% colnames(stds_df)) {
-    stop(
-      "Mass calibration data must contain 'sample_id'."
-    )
-  }
-
-  # Determine amount column
-  amount_col <- paste0(
-    element,
-    ".Amount"
-  )
-
+  # Check required columns
   required_columns <- c(
-    amount_col,
-    "area_or_voltage",
-    "sample_id"
+    "sample_id",
+    "area_or_voltage"
   )
 
   missing_columns <- setdiff(
@@ -203,6 +184,21 @@ build_mass_model <- function(
         missing_columns,
         collapse = ", "
       )
+    )
+  }
+
+  # Determine amount column
+  amount_col <- paste0(
+    element,
+    ".Amount"
+  )
+
+  if (!amount_col %in% colnames(stds_df)) {
+    stop(
+      "Mass calibration data are missing the required amount ",
+      "column '",
+      amount_col,
+      "'."
     )
   }
 
@@ -414,7 +410,6 @@ build_mass_model <- function(
     )
   )
 }
-
 
 #' Apply mass calibration to all samples
 #'

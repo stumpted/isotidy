@@ -24,26 +24,26 @@ adapt_ea_data <- function(
     instrument = "EA",
     verbose = TRUE
 ) {
-  
+
   # Check raw data
   if (!is.data.frame(raw_df)) {
     stop("'raw_df' must be a data frame.")
   }
-  
+
   if (nrow(raw_df) == 0) {
     stop("'raw_df' contains no rows.")
   }
-  
+
   # Require configuration
   if (is.null(config)) {
     stop("An experiment config is required.")
   }
-  
+
   # Require schema
   if (is.null(schema)) {
     stop("An EA-IRMS schema is required.")
   }
-  
+
   # Check isotope
   if (
     length(isotope) != 1 ||
@@ -54,25 +54,25 @@ adapt_ea_data <- function(
       "'isotope' must contain exactly one non-empty value."
     )
   }
-  
+
   # Check schema structure
   if (is.null(schema$column_mapping)) {
     stop(
       "The EA-IRMS schema does not contain 'column_mapping'."
     )
   }
-  
+
   mapping <- schema$column_mapping
-  
+
   if (!is.list(mapping)) {
     stop(
       "'column_mapping' in the EA-IRMS schema must be a list."
     )
   }
-  
+
   # Get the element from EA configuration
   element <- get_config_element(config)
-  
+
   # Resolve isotope-specific mapping
   if (is.null(mapping$isotope_ratio)) {
     stop(
@@ -80,14 +80,14 @@ adapt_ea_data <- function(
       "'isotope_ratio' mapping."
     )
   }
-  
+
   if (!is.list(mapping$isotope_ratio)) {
     stop(
       "'isotope_ratio' in the EA-IRMS schema must contain ",
       "isotope-specific mappings."
     )
   }
-  
+
   if (!isotope %in% names(mapping$isotope_ratio)) {
     stop(
       "No isotope ratio mapping found for isotope '",
@@ -99,12 +99,12 @@ adapt_ea_data <- function(
       )
     )
   }
-  
+
   resolved_mapping <- mapping
-  
+
   resolved_mapping$isotope_ratio <-
     mapping$isotope_ratio[[isotope]]
-  
+
   # Required EA mappings needed to create canonical data
   required_mapping <- c(
     "identifier",
@@ -113,12 +113,12 @@ adapt_ea_data <- function(
     "isotope_ratio",
     "area_all"
   )
-  
+
   missing_mapping <- setdiff(
     required_mapping,
     names(resolved_mapping)
   )
-  
+
   if (length(missing_mapping) > 0) {
     stop(
       "The EA-IRMS schema is missing required mappings: ",
@@ -128,12 +128,12 @@ adapt_ea_data <- function(
       )
     )
   }
-  
+
   # Validate that required mappings are single raw column names
   for (field in required_mapping) {
-    
+
     value <- resolved_mapping[[field]]
-    
+
     if (
       length(value) != 1 ||
       !is.character(value) ||
@@ -148,7 +148,7 @@ adapt_ea_data <- function(
       )
     }
   }
-  
+
   # Optional EA mappings
   optional_mapping <- c(
     "area_44",
@@ -162,7 +162,7 @@ adapt_ea_data <- function(
     "bgd_46",
     "time"
   )
-  
+
   # Keep only mappings relevant to EA processing
   resolved_mapping <- resolved_mapping[
     names(resolved_mapping) %in%
@@ -171,18 +171,18 @@ adapt_ea_data <- function(
         optional_mapping
       )
   ]
-  
+
   # Check that mapped raw columns exist
   mapped_columns <- unlist(
     resolved_mapping,
     use.names = FALSE
   )
-  
+
   missing_columns <- setdiff(
     mapped_columns,
     names(raw_df)
   )
-  
+
   if (length(missing_columns) > 0) {
     stop(
       "The raw EA-IRMS data are missing mapped columns: ",
@@ -192,27 +192,27 @@ adapt_ea_data <- function(
       )
     )
   }
-  
+
   # Validate EA-specific schema requirements
   validate_ea_raw_data(
     raw_df = raw_df,
     schema = schema,
     mapping = resolved_mapping
   )
-  
+
   # Determine run ID
   if (is.null(run_id)) {
-    
-    if (!is.null(config$experiment$name)) {
-      run_id <- config$experiment$name
+
+    if (!is.null(config$experiment_name)) {
+      run_id <- config$experiment_name
     } else {
       stop(
         "No 'run_id' was supplied and ",
-        "'config$experiment$name' is missing."
+        "'config$experiment_name' is missing."
       )
     }
   }
-  
+
   if (
     length(run_id) != 1 ||
     is.na(run_id) ||
@@ -222,7 +222,7 @@ adapt_ea_data <- function(
       "'run_id' must contain exactly one non-empty value."
     )
   }
-  
+
   # Create canonical data
   canonical_df <- data.frame(
     run_id = rep(
@@ -252,23 +252,23 @@ adapt_ea_data <- function(
     peak_number = raw_df[[resolved_mapping$peak_number]],
     stringsAsFactors = FALSE
   )
-  
+
   # Add EA-specific columns
   canonical_df <- add_ea_specific_columns(
     canonical_df = canonical_df,
     raw_df = raw_df,
     mapping = resolved_mapping
   )
-  
+
   # Apply EA-specific filtering rules
   canonical_df <- apply_ea_validation_rules(
     canonical_df = canonical_df,
     schema = schema
   )
-  
+
   # Validate final EA canonical data
   validate_ea_canonical_data(canonical_df)
-  
+
   if (verbose) {
     message(
       "Adapted ",
@@ -281,7 +281,7 @@ adapt_ea_data <- function(
       "."
     )
   }
-  
+
   canonical_df
 }
 
@@ -293,31 +293,31 @@ adapt_ea_data <- function(
 #' @return A single element name.
 #' @export
 get_config_element <- function(config) {
-  
+
   if (is.null(config)) {
     stop(
       "An experiment config is required to specify the element."
     )
   }
-  
+
   if (is.null(config$processing)) {
     stop(
       "The EA experiment config is missing the ",
       "'processing' section."
     )
   }
-  
+
   if (is.null(config$processing$element)) {
     stop(
       "The EA experiment config is missing ",
       "'processing$element'."
     )
   }
-  
+
   element <- as.character(
     config$processing$element
   )
-  
+
   if (
     length(element) != 1 ||
     is.na(element) ||
@@ -328,7 +328,7 @@ get_config_element <- function(config) {
       "non-empty value."
     )
   }
-  
+
   element
 }
 
@@ -347,27 +347,27 @@ validate_ea_raw_data <- function(
     schema,
     mapping
 ) {
-  
+
   # Check schema validation section
   if (is.null(schema$validation)) {
     return(invisible(TRUE))
   }
-  
+
   validation <- schema$validation
-  
+
   # Check schema-defined required columns
   if (!is.null(validation$required_columns)) {
-    
+
     required_fields <- unlist(
       validation$required_columns,
       use.names = FALSE
     )
-    
+
     missing_fields <- setdiff(
       required_fields,
       names(mapping)
     )
-    
+
     if (length(missing_fields) > 0) {
       stop(
         "The EA schema requires mappings for: ",
@@ -378,18 +378,18 @@ validate_ea_raw_data <- function(
       )
     }
   }
-  
+
   # Check that mapped columns exist in the raw data
   mapped_columns <- unlist(
     mapping,
     use.names = FALSE
   )
-  
+
   missing_columns <- setdiff(
     mapped_columns,
     names(raw_df)
   )
-  
+
   if (length(missing_columns) > 0) {
     stop(
       "The raw EA data are missing required columns: ",
@@ -399,7 +399,7 @@ validate_ea_raw_data <- function(
       )
     )
   }
-  
+
   invisible(TRUE)
 }
 
@@ -416,53 +416,53 @@ apply_ea_validation_rules <- function(
     canonical_df,
     schema
 ) {
-  
+
   if (is.null(schema$validation)) {
     return(canonical_df)
   }
-  
+
   validation <- schema$validation
-  
+
   # Keep only configured peak numbers
   if (!is.null(validation$peak_numbers_to_keep)) {
-    
+
     peak_numbers <- as.numeric(
       unlist(
         validation$peak_numbers_to_keep,
         use.names = FALSE
       )
     )
-    
+
     canonical_df <- canonical_df[
       canonical_df$peak_number %in% peak_numbers,
       ,
       drop = FALSE
     ]
   }
-  
+
   # Exclude configured identifiers
   if (!is.null(validation$exclude_identifiers)) {
-    
+
     excluded_identifiers <- as.character(
       unlist(
         validation$exclude_identifiers,
         use.names = FALSE
       )
     )
-    
+
     canonical_df <- canonical_df[
       !canonical_df$sample_id %in% excluded_identifiers,
       ,
       drop = FALSE
     ]
   }
-  
+
   if (nrow(canonical_df) == 0) {
     stop(
       "No EA data remain after applying schema validation rules."
     )
   }
-  
+
   canonical_df
 }
 
@@ -479,61 +479,61 @@ add_ea_specific_columns <- function(
     raw_df,
     mapping
 ) {
-  
+
   # Area columns
   if (!is.null(mapping$area_44)) {
     canonical_df$area_44 <-
       raw_df[[mapping$area_44]]
   }
-  
+
   if (!is.null(mapping$area_45)) {
     canonical_df$area_45 <-
       raw_df[[mapping$area_45]]
   }
-  
+
   if (!is.null(mapping$area_46)) {
     canonical_df$area_46 <-
       raw_df[[mapping$area_46]]
   }
-  
+
   # Amplitude columns
   if (!is.null(mapping$amplitude_44)) {
     canonical_df$amplitude_44 <-
       raw_df[[mapping$amplitude_44]]
   }
-  
+
   if (!is.null(mapping$amplitude_45)) {
     canonical_df$amplitude_45 <-
       raw_df[[mapping$amplitude_45]]
   }
-  
+
   if (!is.null(mapping$amplitude_46)) {
     canonical_df$amplitude_46 <-
       raw_df[[mapping$amplitude_46]]
   }
-  
+
   # Background columns
   if (!is.null(mapping$bgd_44)) {
     canonical_df$bgd_44 <-
       raw_df[[mapping$bgd_44]]
   }
-  
+
   if (!is.null(mapping$bgd_45)) {
     canonical_df$bgd_45 <-
       raw_df[[mapping$bgd_45]]
   }
-  
+
   if (!is.null(mapping$bgd_46)) {
     canonical_df$bgd_46 <-
       raw_df[[mapping$bgd_46]]
   }
-  
+
   # Time code
   if (!is.null(mapping$time)) {
     canonical_df$time_code <-
       raw_df[[mapping$time]]
   }
-  
+
   canonical_df
 }
 
@@ -549,7 +549,7 @@ add_ea_specific_columns <- function(
 validate_ea_canonical_data <- function(
     canonical_df
 ) {
-  
+
   required_columns <- c(
     "run_id",
     "sample_id",
@@ -562,12 +562,12 @@ validate_ea_canonical_data <- function(
     "is_blank",
     "peak_number"
   )
-  
+
   missing_columns <- setdiff(
     required_columns,
     names(canonical_df)
   )
-  
+
   if (length(missing_columns) > 0) {
     stop(
       "Canonical EA data are missing required columns: ",
@@ -577,7 +577,7 @@ validate_ea_canonical_data <- function(
       )
     )
   }
-  
+
   # Check element
   if (
     any(
@@ -589,28 +589,28 @@ validate_ea_canonical_data <- function(
       "Canonical EA data contain missing or empty element values."
     )
   }
-  
+
   # Check sample IDs
   if (any(is.na(canonical_df$sample_id))) {
     warning(
       "Canonical EA data contain missing sample identifiers."
     )
   }
-  
+
   # Check peak numbers
   if (any(is.na(canonical_df$peak_number))) {
     warning(
       "Canonical EA data contain missing peak numbers."
     )
   }
-  
+
   # Check required numeric fields
   numeric_columns <- c(
     "delta_value",
     "area_or_voltage",
     "amount"
   )
-  
+
   non_numeric <- numeric_columns[
     !vapply(
       canonical_df[numeric_columns],
@@ -618,7 +618,7 @@ validate_ea_canonical_data <- function(
       logical(1)
     )
   ]
-  
+
   if (length(non_numeric) > 0) {
     stop(
       "The following canonical EA fields must be numeric: ",
@@ -628,19 +628,19 @@ validate_ea_canonical_data <- function(
       )
     )
   }
-  
+
   # Check logical flags
   if (!is.logical(canonical_df$is_standard)) {
     stop(
       "'is_standard' must be logical."
     )
   }
-  
+
   if (!is.logical(canonical_df$is_blank)) {
     stop(
       "'is_blank' must be logical."
     )
   }
-  
+
   invisible(TRUE)
 }

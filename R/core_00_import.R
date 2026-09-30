@@ -691,6 +691,7 @@ load_IRMS_config <- function(
     stds_data_path = stds_data_path,
     stds_used = stds_used,
     calibration_standards = calibration_standards,
+    processing = config$processing,
     stds_reference_df = stds_reference_df,
     yaml_file_path = yaml_file_path
   )

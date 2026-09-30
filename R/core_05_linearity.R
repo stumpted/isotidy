@@ -43,6 +43,9 @@ build_linearity_model <- function(
 
   # Prepare data for the model using the selected calibration standards.
   model_df <- stds_df %>%
+    dplyr::filter(
+      sample_id %in% config$calibration_standards
+    ) %>%
     dplyr::select(
       dplyr::all_of(delta_col),
       area_or_voltage,
@@ -205,6 +208,22 @@ build_linearity_model <- function(
     cat("  ✓ Linearity model built\n\n")
   }
 
+  calibration_standard <- config$calibration_standards[1]
+
+  calibration_reference <- stds_df %>%
+    dplyr::filter(sample_id == calibration_standard) %>%
+    dplyr::pull(delta_value_reference) %>%
+    unique()
+
+  if (length(calibration_reference) != 1 || is.na(calibration_reference)) {
+    stop(
+      paste(
+        "Could not determine a unique reference delta value for calibration standard:",
+        calibration_standard
+      )
+    )
+  }
+
   return(
     list(
       model = model,
@@ -215,7 +234,9 @@ build_linearity_model <- function(
       residual_std_error = rse,
       delta_column = delta_col,
       n_stds = nrow(model_df),
-      plot = plot
+      plot = plot,
+      calibration_standard = calibration_standard,
+      calibration_reference = calibration_reference
     )
   )
 }
@@ -273,17 +294,22 @@ apply_linearity_correction <- function(
     )
   }
 
-  # Predict the area-dependent δ error.
-  predicted_error <- stats::predict(
+  # Predict the measured delta value at each area.
+  predicted_delta <- stats::predict(
     linearity_model$model,
     newdata = data.frame(
       area_or_voltage = df$area_or_voltage
     )
   )
 
-  # Remove the predicted error.
+  # Calculate the area-dependent linearity error
+  # relative to the calibration standard reference value.
+  linearity_error <-
+    predicted_delta - linearity_model$calibration_reference
+
+  # Remove the predicted linearity error.
   df$delta_value_linearity_corrected <-
-    df[[delta_col]] - predicted_error
+    df[[delta_col]] - linearity_error
 
   if (verbose) {
 
