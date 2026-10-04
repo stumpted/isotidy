@@ -167,25 +167,25 @@ build_linearity_model <- function(
     # Use exactly the data used to fit the linearity model.
     plot_df <- model_df
 
-    plot <- ggplot(
+    plot <- ggplot2::ggplot(
       plot_df,
-      aes(
+      ggplot2::aes(
         x = area_or_voltage,
         y = .data[[delta_col]]
       )
     ) +
 
-      geom_point(
+      ggplot2::geom_point(
         size = 3,
         alpha = 0.75
       ) +
 
-      geom_smooth(
+      ggplot2::geom_smooth(
         method = "lm",
         se = FALSE
       ) +
 
-      labs(
+      ggplot2::labs(
         x = "Peak Area",
         y = "Measured δ (‰)",
         title = paste0(
@@ -194,10 +194,10 @@ build_linearity_model <- function(
         )
       ) +
 
-      theme_minimal() +
+      ggplot2::theme_minimal() +
 
-      theme(
-        plot.title = element_text(
+      ggplot2::theme(
+        plot.title = ggplot2::element_text(
           face = "bold",
           size = 12
         )

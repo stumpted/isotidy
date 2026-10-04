@@ -31,12 +31,12 @@ clean_data <- function(df, config, verbose = TRUE) {
 
     # Count rows to be removed
     rows_to_remove <- df %>%
-      filter(str_detect(sample_id, pattern_string)) %>%
+      dplyr::filter(stringr::str_detect(sample_id, pattern_string)) %>%
       nrow()
 
     # Remove test runs
     df <- df %>%
-      filter(!str_detect(sample_id, pattern_string))
+      dplyr::filter(!stringr::str_detect(sample_id, pattern_string))
 
     if (verbose && rows_to_remove > 0) {
       cat("  Removed test runs:", rows_to_remove, "rows\n")
@@ -49,7 +49,7 @@ clean_data <- function(df, config, verbose = TRUE) {
     rows_before <- nrow(df)
 
     df <- df %>%
-      filter(peak_number == config$peak_number)
+      dplyr::filter(peak_number == config$peak_number)
 
     rows_removed <- rows_before - nrow(df)
 
@@ -65,7 +65,7 @@ clean_data <- function(df, config, verbose = TRUE) {
     rows_before <- nrow(df)
 
     df <- df %>%
-      filter(compound_name == config$select_compound)
+      dplyr::filter(compound_name == config$select_compound)
 
     rows_removed <- rows_before - nrow(df)
 
@@ -97,8 +97,8 @@ identify_blanks <- function(df, blank_identifier = "Blank", verbose = TRUE) {
 
   # Mark blanks
   df <- df %>%
-    mutate(
-      is_blank = str_detect(sample_id, pattern_string, negate = FALSE)
+    dplyr::mutate(
+      is_blank = stringr::str_detect(sample_id, pattern_string, negate = FALSE)
     )
 
   n_blanks <- sum(df$is_blank, na.rm = TRUE)

@@ -18,7 +18,7 @@
 #' @param config Configuration.
 #' @param verbose Print progress.
 #'
-#' @return Standards dataframe with a new {element}.Amount column.
+#' @return Standards dataframe with a new {element}_amount column.
 prepare_mass_standards <- function(
     stds_df,
     element,
@@ -63,7 +63,7 @@ prepare_mass_standards <- function(
     )
   }
 
-  amount_col <- paste0(element, ".Amount")
+  amount_col <- paste0(element, "_amount")
 
   stds_df[[amount_col]] <-
     stds_df$amount * stds_df$element_fraction
@@ -190,7 +190,7 @@ build_mass_model <- function(
   # Determine amount column
   amount_col <- paste0(
     element,
-    ".Amount"
+    "_amount"
   )
 
   if (!amount_col %in% colnames(stds_df)) {
@@ -346,25 +346,25 @@ build_mass_model <- function(
           .data[[amount_col]] - predicted
       )
 
-    plot <- ggplot(
+    plot <- ggplot2::ggplot(
       plot_df,
-      aes(
+      ggplot2::aes(
         x = area_or_voltage,
         y = .data[[amount_col]]
       )
     ) +
 
-      geom_point(
+      ggplot2::geom_point(
         size = 3,
         alpha = 0.7
       ) +
 
-      geom_smooth(
+      ggplot2::geom_smooth(
         method = "lm",
         se = TRUE
       ) +
 
-      labs(
+      ggplot2::labs(
         x = "Peak Area",
         y = paste0(
           element,
@@ -382,14 +382,14 @@ build_mass_model <- function(
         )
       ) +
 
-      theme_minimal() +
+      ggplot2::theme_minimal() +
 
-      theme(
-        plot.title = element_text(
+      ggplot2::theme(
+        plot.title = ggplot2::element_text(
           face = "bold",
           size = 12
         ),
-        plot.subtitle = element_text(
+        plot.subtitle = ggplot2::element_text(
           size = 10
         )
       )
@@ -421,7 +421,7 @@ build_mass_model <- function(
 #' @param config Configuration.
 #' @param verbose Print progress.
 #'
-#' @return Canonical dataframe with {element}.Amount and {element}.Percent.
+#' @return Canonical dataframe with {element}_amount and {element}_percent.
 apply_mass_correction <- function(
     df,
     mass_model,
@@ -447,12 +447,12 @@ apply_mass_correction <- function(
 
   amount_col <- paste0(
     element,
-    ".Amount"
+    "_amount"
   )
 
   percent_col <- paste0(
     element,
-    ".Percent"
+    "_percent"
   )
 
   required_columns <- c(

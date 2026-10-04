@@ -24,7 +24,7 @@ identify_standards <- function(df, standard_names, verbose = TRUE) {
 
   # Mark standards
   df <- df %>%
-    mutate(is_standard = sample_id %in% standard_names)
+    dplyr::mutate(is_standard = sample_id %in% standard_names)
 
   n_stds <- sum(df$is_standard, na.rm = TRUE)
 
@@ -72,7 +72,7 @@ extract_standards <- function(df, stds_reference_df, config = NULL, verbose = TR
 
   # Filter to standards only
   stds_df <- df %>%
-    filter(is_standard == TRUE)
+    dplyr::filter(is_standard == TRUE)
 
   if (verbose) {
     cat("  Standards to process:", nrow(stds_df), "measurements\n")
@@ -89,11 +89,11 @@ extract_standards <- function(df, stds_reference_df, config = NULL, verbose = TR
 
   # Rename reference value before joining so measured and reference values are explicit
   stds_reference_df <- stds_reference_df %>%
-    rename(delta_value_reference = delta_value) %>%
-    select(-element)
+    dplyr::rename(delta_value_reference = delta_value) %>%
+    dplyr::select(-element)
 
   # Merge with reference database
-  stds_df <- left_join(
+  stds_df <- dplyr::left_join(
     stds_df,
     stds_reference_df,
     by = c("sample_id" = "standard_id"),
@@ -105,8 +105,8 @@ extract_standards <- function(df, stds_reference_df, config = NULL, verbose = TR
 
   if (unmatched > 0) {
     unmatched_names <- stds_df %>%
-      filter(is.na(delta_value_reference)) %>%
-      pull(sample_id) %>%
+      dplyr::filter(is.na(delta_value_reference)) %>%
+      dplyr::pull(sample_id) %>%
       unique()
 
     warning(paste(

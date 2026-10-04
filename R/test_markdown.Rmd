@@ -1,0 +1,76 @@
+---
+title: "test_markdown"
+output: html_document
+date: "2026-10-04"
+---
+
+```{r load config}
+
+config_path <- file.path(
+  "..",
+  "data",
+  "202605_prelim_EA_experiment",
+  "analyzed_data",
+  "experiment_config.yaml"
+)
+
+config <- load_IRMS_config(config_path)
+
+
+raw_data_path <- file.path(
+  "..",
+  config$raw_data_dir,
+  paste0(config$file_name, ".xls")
+)
+
+raw_ea <- readxl::read_xls(raw_data_path)
+
+schema_path <- file.path(
+  "inst",
+  "config",
+  "peripheral_schemas.yml"
+)
+
+schemas <- load_peripheral_schemas(schema_path)
+
+schema <- get_peripheral_schema(
+  schemas = schemas,
+  peripheral = "EA"
+)
+
+stds_reference_df <- config$stds_reference_df
+
+```
+
+```{r rest result}
+
+result <- process_ea(
+  raw_df = raw_ea,
+  config = config,
+  schema = schema,
+  stds_reference_df = stds_reference_df,
+  isotope = "C13",
+  verbose = TRUE,
+  apply_linearity = FALSE
+)
+
+```
+
+```{r save result}
+
+result <- process_ea(
+  raw_df = raw_data,
+  config = config,
+  schema = ea_schema,
+  stds_reference_df = config$stds_reference_df
+)
+
+saved <- save_ea_results(
+  result = result,
+  config = config,
+  output_dir = "data/202605_prelim_EA_experiment/analyzed_data"
+)
+
+```
+
+

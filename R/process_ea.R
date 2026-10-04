@@ -12,8 +12,8 @@ process_ea <- function(
     isotope = "C13",
     run_id = NULL,
     instrument = "EA",
-    apply_mass = NULL,
-    apply_linearity = NULL,
+    apply_mass = TRUE,
+    apply_linearity = TRUE,
     verbose = TRUE
 ) {
 
@@ -83,12 +83,14 @@ process_ea <- function(
 
   # Apply mass correction
 
-  data <- apply_mass_correction(
-    df = data,
-    mass_model = mass_model,
-    config = config,
-    verbose = verbose
-  )
+  if (apply_mass) {
+    data <- apply_mass_correction(
+      df = data,
+      mass_model = mass_model,
+      config = config,
+      verbose = verbose
+    )
+  }
 
   # Calculate blank statistics
 
@@ -129,11 +131,13 @@ process_ea <- function(
 
   # Apply linearity correction
 
-  data <- apply_linearity_correction(
-    df = data,
-    linearity_model = linearity_model,
-    verbose = verbose
-  )
+  if (apply_linearity) {
+    data <- apply_linearity_correction(
+      df = data,
+      linearity_model = linearity_model,
+      verbose = verbose
+    )
+  }
 
   # Re-extract standards after linearity correction
 
