@@ -1,0 +1,98 @@
+---
+title: "EA-IRMS Correction Report"
+author:
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+    df_print: paged
+---
+
+# Purpose
+
+This report runs the EA-IRMS processing pipeline documents the resulting corrections. Replace file paths in set-up, and check parameters for the corrections are as intended.
+
+The pipeline produces two final files:
+
+1. A corrected CSV containing the final analysis-ready data.
+2. This HTML report containing the processing steps, calibration statistics, diagnostic plots, and final checks.
+
+# 1. Setup
+
+```{r load config}
+data_path <- file.path(
+  "path",
+  "to",
+  "data",
+  "directory"
+)
+
+config_path <- file.path(
+  data_path,
+  "analyzed_data",
+  "experiment_config.yaml"
+)
+
+config <- load_IRMS_config(config_path)
+
+raw_data_path <- file.path(
+  "..",
+  config$raw_data_dir,
+  paste0(config$file_name, ".xls")
+)
+
+raw_ea <- readxl::read_xls(raw_data_path)
+
+schema_path <- file.path(
+  "inst",
+  "config",
+  "peripheral_schemas.yml"
+)
+
+schemas <- load_peripheral_schemas(schema_path)
+
+schema <- get_peripheral_schema(
+  schemas = schemas,
+  peripheral = "EA"
+)
+
+stds_reference_df <- config$stds_reference_df
+
+output_path <- file.path(
+  data_path,
+  "analyzed_data"
+)
+
+```
+
+# 2. Run corrections
+
+```{r test result}
+
+result <- process_ea(
+  raw_df = raw_ea,
+  config = config,
+  schema = schema,
+  stds_reference_df = stds_reference_df,
+  isotope = "C13",
+  run_id = config$file_name,
+  instrument = "EA",
+  apply_mass = TRUE,
+  apply_linearity = TRUE,
+  verbose = TRUE
+)
+
+```
+
+# 3. Save results
+
+```{r save result}
+
+saved <- save_ea_results(
+  result = result,
+  config = config,
+  output_dir = output_path
+)
+
+```

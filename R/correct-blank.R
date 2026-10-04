@@ -1,12 +1,13 @@
 # Blank handling: identify blanks, summarize them, subtract their effect.
 
-# TODO: EA blank correction should handle multiple caps' worth of blanks per run, dividing by the number of blanks.
-
-identify_blanks <- function(df, blank_identifier = "Blank", verbose = TRUE) {
+identify_blanks <- function(
+    df,
+    blank_identifier = "blank",
+    verbose = TRUE
+) {
 
   if (verbose) cat("Identifying blanks\n")
 
-  # Combine multiple identifiers into one regex
   if (length(blank_identifier) > 1) {
     pattern_string <- paste(blank_identifier, collapse = "|")
   } else {
@@ -15,7 +16,10 @@ identify_blanks <- function(df, blank_identifier = "Blank", verbose = TRUE) {
 
   df <- df %>%
     dplyr::mutate(
-      is_blank = stringr::str_detect(.data$sample_id, pattern_string, negate = FALSE)
+      is_blank = stringr::str_detect(
+        .data$sample_id,
+        stringr::regex(pattern_string, ignore_case = TRUE)
+      )
     )
 
   n_blanks <- sum(df$is_blank, na.rm = TRUE)
