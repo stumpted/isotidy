@@ -1,0 +1,346 @@
+---
+title: "EA-IRMS Processing Summary"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: readable
+    self_contained: true
+params:
+  result: NULL
+  config: NULL
+  data_file: NULL
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE
+)
+
+`%||%` <- function(x, y) {
+  if (is.null(x)) y else x
+}
+
+result <- params$result
+config <- params$config
+data_file <- params$data_file
+```
+
+# Processing summary
+
+This report documents the processing of the EA-IRMS dataset, including the
+calibration diagnostics, correction decisions, and final processed output.
+
+## Experiment information
+
+```{r experiment-information}
+experiment_info <- data.frame(
+  Field = c(
+    "Experiment",
+    "File",
+    "Peripheral",
+    "Description"
+  ),
+  Value = c(
+    config$experiment_name %||% NA_character_,
+    config$file_name %||% NA_character_,
+    "EA",
+    config$description %||% NA_character_
+  )
+)
+
+knitr::kable(experiment_info)
+```
+
+## Processing settings
+
+```{r processing-settings}
+processing <- config$processing %||% list()
+
+processing_info <- data.frame(
+  Setting = c(
+    "Element",
+    "Blank number",
+    "Peak number"
+  ),
+  Value = c(
+    processing$element %||% NA_character_,
+    processing$blank_num %||% NA,
+    processing$peak_number %||% NA
+  )
+)
+
+knitr::kable(processing_info)
+```
+
+## Calibration standards
+
+```{r calibration-standards}
+calibration_standards <- NULL
+
+if (!is.null(config$calibration_standards)) {
+  calibration_standards <- config$calibration_standards
+} else if (
+  !is.null(config$standards) &&
+  !is.null(config$standards$calibration_standards)
+) {
+  calibration_standards <- config$standards$calibration_standards
+}
+
+if (!is.null(calibration_standards) &&
+    length(calibration_standards) > 0) {
+
+  calibration_standards <- unlist(
+    calibration_standards,
+    use.names = TRUE
+  )
+
+  calibration_info <- data.frame(
+    Element = names(calibration_standards),
+    Calibration_standard = as.character(
+      calibration_standards
+    ),
+    row.names = NULL
+  )
+
+  # Handle an unnamed single calibration standard gracefully.
+  if (is.null(names(calibration_standards)) ||
+      all(names(calibration_standards) == "")) {
+    calibration_info$Element <- NA_character_
+  }
+
+  knitr::kable(calibration_info)
+
+} else {
+
+  cat("No calibration standards were recorded in the configuration.")
+}
+```
+
+# Mass calibration
+
+The mass calibration diagnostic was evaluated using the configured
+calibration standard.
+
+```{r mass-status, results='asis'}
+if (isTRUE(result$apply_mass)) {
+  cat("**Mass correction was applied.**")
+} else if (identical(result$apply_mass, FALSE)) {
+  cat("**Mass correction was not applied.**")
+} else {
+  cat("**Mass correction status was not recorded in the result object.**")
+}
+```
+
+The diagnostic statistics and plot are shown regardless of whether the
+correction was applied, so that the calibration decision can be reviewed.
+
+```{r mass-statistics}
+if (!is.null(result$mass_model)) {
+
+  mass_summary <- data.frame(
+    Metric = c(
+      "Element",
+      "Calibration standard",
+      "Slope",
+      "Intercept",
+      "R-squared",
+      "Residual standard error",
+      "Number of measurements"
+    ),
+    Value = c(
+      result$mass_model$element,
+      result$mass_model$calibration_standard,
+      result$mass_model$slope,
+      result$mass_model$intercept,
+      result$mass_model$r_squared,
+      result$mass_model$residual_std_error,
+      result$mass_model$n_measurements
+    )
+  )
+
+  knitr::kable(mass_summary)
+} else {
+  cat("Mass calibration model was not available.")
+}
+```
+
+## Mass calibration diagnostic
+
+```{r mass-plot, fig.width=7, fig.height=5}
+if (!is.null(result$mass_model) &&
+    !is.null(result$mass_model$plot)) {
+
+  print(result$mass_model$plot)
+
+} else {
+
+  cat("Mass calibration diagnostic plot was not available.")
+
+}
+```
+
+# Blank correction
+
+```{r blank-statistics}
+if (!is.null(result$blank_stats)) {
+
+  blank_summary <- data.frame(
+    Metric = c(
+      "Mean blank area",
+      "SD blank area",
+      "Mean blank delta",
+      "SD blank delta",
+      "Number of blanks"
+    ),
+    Value = c(
+      result$blank_stats$mean_area,
+      result$blank_stats$sd_area,
+      result$blank_stats$mean_delta,
+      result$blank_stats$sd_delta,
+      result$blank_stats$n_blanks
+    )
+  )
+
+  knitr::kable(blank_summary)
+
+} else {
+
+  cat("Blank statistics were not available.")
+
+}
+```
+
+# Linearity calibration
+
+The area-dependent linearity calibration diagnostic was evaluated using the
+configured calibration standard.
+
+```{r linearity-status, results='asis'}
+if (isTRUE(result$apply_linearity)) {
+  cat("**Linearity correction was applied.**")
+} else if (identical(result$apply_linearity, FALSE)) {
+  cat("**Linearity correction was not applied.**")
+} else {
+  cat("**Linearity correction status was not recorded in the result object.**")
+}
+```
+
+The diagnostic statistics and plot are shown regardless of whether the
+correction was applied, so that the calibration decision can be reviewed.
+
+```{r linearity-statistics}
+if (!is.null(result$linearity_model)) {
+
+  linearity_summary <- data.frame(
+    Metric = c(
+      "Calibration standard",
+      "Calibration reference",
+      "Slope",
+      "Intercept",
+      "R-squared",
+      "Residual standard error",
+      "Number of standards",
+      "Delta column"
+    ),
+    Value = c(
+      result$linearity_model$calibration_standard,
+      result$linearity_model$calibration_reference,
+      result$linearity_model$slope,
+      result$linearity_model$intercept,
+      result$linearity_model$r_squared,
+      result$linearity_model$residual_std_error,
+      result$linearity_model$n_stds,
+      result$linearity_model$delta_column
+    )
+  )
+
+  knitr::kable(linearity_summary)
+
+} else {
+
+  cat("Linearity calibration model was not available.")
+
+}
+```
+
+## Linearity calibration diagnostic
+
+```{r linearity-plot, fig.width=7, fig.height=5}
+if (!is.null(result$linearity_model) &&
+    !is.null(result$linearity_model$plot)) {
+
+  print(result$linearity_model$plot)
+
+} else {
+
+  cat("Linearity calibration diagnostic plot was not available.")
+
+}
+```
+
+# Scale calibration
+
+The scale calibration is the final calibration step and uses the standards
+required by the scale model.
+
+```{r scale-statistics}
+if (!is.null(result$scale_model)) {
+
+  scale_summary <- data.frame(
+    Metric = c(
+      "Slope",
+      "Intercept",
+      "R-squared",
+      "Residual standard error",
+      "Delta column",
+      "Reference column",
+      "Number of standards"
+    ),
+    Value = c(
+      result$scale_model$slope,
+      result$scale_model$intercept,
+      result$scale_model$r_squared,
+      result$scale_model$residual_std_error,
+      result$scale_model$delta_column,
+      result$scale_model$reference_column,
+      result$scale_model$n_stds
+    )
+  )
+
+  knitr::kable(scale_summary)
+
+} else {
+
+  cat("Scale calibration model was not available.")
+
+}
+```
+
+# Final output
+
+The processed output was generated by the EA processing pipeline.
+
+```{r output-information}
+if (!is.null(data_file)) {
+  cat("Output data file: ", data_file)
+}
+```
+
+## Processed data preview
+
+```{r output-preview}
+if (!is.null(result$output)) {
+
+  knitr::kable(
+    utils::head(result$output, 10)
+  )
+
+} else {
+
+  cat("Final output data were not available in the result object.")
+
+}
+```

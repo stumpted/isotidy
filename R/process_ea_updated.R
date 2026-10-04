@@ -263,7 +263,9 @@ process_ea <- function(
       blank_stats = blank_stats,
       linearity_model = linearity_model,
       scale_model = scale_model,
-      models = models
+      models = models,
+      apply_mass = apply_mass,
+      apply_linearity = apply_linearity
     )
   )
 }

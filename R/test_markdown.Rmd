@@ -16,7 +16,6 @@ config_path <- file.path(
 
 config <- load_IRMS_config(config_path)
 
-
 raw_data_path <- file.path(
   "..",
   config$raw_data_dir,
@@ -50,25 +49,21 @@ result <- process_ea(
   schema = schema,
   stds_reference_df = stds_reference_df,
   isotope = "C13",
-  verbose = TRUE,
-  apply_linearity = FALSE
+  run_id = config$file_name,
+  instrument = "EA",
+  apply_mass = TRUE,
+  apply_linearity = FALSE,
+  verbose = TRUE
 )
 
 ```
 
 ```{r save result}
 
-result <- process_ea(
-  raw_df = raw_data,
-  config = config,
-  schema = ea_schema,
-  stds_reference_df = config$stds_reference_df
-)
-
 saved <- save_ea_results(
   result = result,
   config = config,
-  output_dir = "data/202605_prelim_EA_experiment/analyzed_data"
+  output_dir = "../data/202605_prelim_EA_experiment/analyzed_data"
 )
 
 ```
