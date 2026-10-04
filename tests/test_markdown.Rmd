@@ -41,7 +41,7 @@ stds_reference_df <- config$stds_reference_df
 
 ```
 
-```{r rest result}
+```{r test result}
 
 result <- process_ea(
   raw_df = raw_ea,
