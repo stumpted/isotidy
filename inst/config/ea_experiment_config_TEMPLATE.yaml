@@ -1,12 +1,9 @@
-# ============================================================================
 # EA Pipeline Configuration - YAML Format
-# ============================================================================
 # This file documents all parameters used for processing your EA data.
 # Keep it in your analyzed_data folder alongside your results.
 #
 # Edit this file to match your specific experiment, then load it in R with:
 #   config <- create_ea_config_from_yaml("path/to/this/file.yaml")
-# ============================================================================
 
 experiment:
   # Name matching your data folder in data/
@@ -21,7 +18,6 @@ experiment:
   # Brief description of what this experiment was
   description: "Bulk C isotope measurements"
 
-# ============================================================================
 standards:
   # Which standards were used in this run (must exist in EA_lab_stds.xlsx)
   used:
@@ -35,7 +31,6 @@ standards:
   calibration_standards:
     C: SERC0
 
-# ============================================================================
 processing:
   # Element being processed in this experiment
   element: C
@@ -46,7 +41,6 @@ processing:
   # Which peak number to use (typically 3 for center peak)
   peak_number: 3
 
-# ============================================================================
 paths:
   # Leave these as NULL to use default structure:
   # - raw_data_dir: data/{experiment.name}/raw_data/
@@ -68,12 +62,10 @@ notes: |
     - Sample set 1-5 had higher noise due to weather
     - TTAS standard ran as quality check only
 
-# ============================================================================
 # Additional metadata (optional, for your records)
-# ============================================================================
 
 metadata:
   date_run: "2026-05-01"
   analyst: "Annie C. Edwards"
   instrument: "EA-IRMS"
-  weather_notes: "Stable, low humidity"
+  weather_notes: "none"

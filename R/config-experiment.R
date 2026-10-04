@@ -6,12 +6,14 @@
 #' the canonical `irms_config` structure used by the processing pipeline.
 #'
 #' @param yaml_file_path Path to the experiment configuration YAML file.
+#' @param lab_config_dir Directory containing laboratory configuration files.
 #' @param stds_reference_df Optional pre-loaded laboratory standards table.
 #' @param verbose Print loading information.
 #' @return An object of class `irms_config`.
 #' @export
 load_IRMS_config <- function(
     yaml_file_path,
+    lab_config_dir = NULL,
     stds_reference_df = NULL,
     verbose = TRUE
 ) {
@@ -219,20 +221,17 @@ load_IRMS_config <- function(
   # Locate laboratory standards
   if (is.null(stds_data_path)) {
 
-    stds_data_path <- system.file(
-      "config",
-      "lab_standards.yml",
-      package = "isotidy"
-    )
-
-    if (stds_data_path == "") {
-
-      stds_data_path <- file.path(
-        "inst",
-        "config",
-        "lab_standards.yml"
+    if (is.null(lab_config_dir)) {
+      stop(
+        "No laboratory configuration directory was provided. ",
+        "Supply lab_config_dir or specify paths$stds_data_path."
       )
     }
+
+    stds_data_path <- file.path(
+      lab_config_dir,
+      "lab_standards.yml"
+    )
   }
 
   # Load laboratory standards
@@ -536,86 +535,6 @@ validate_config <- function(
 
   invisible(TRUE)
 }
-
-
-#' Create an IRMS configuration template
-#'
-#' @param output_path Path for the YAML file to create.
-#' @param experiment_name Experiment name.
-#' @param file_name Experiment file name.
-#' @param stds_used Standards used in the experiment.
-#' @param calibration_standards Named mapping from element to calibration standard.
-#' @param raw_data_dir Optional raw data directory.
-#' @param output_dir Optional output directory.
-#' @param stds_data_path Optional laboratory standards path.
-#' @param overwrite Overwrite an existing file.
-#' @return Invisibly returns the output path.
-#' @export
-create_config_template <- function(
-    output_path,
-    experiment_name,
-    file_name,
-    stds_used,
-    calibration_standards,
-    raw_data_dir = NULL,
-    output_dir = NULL,
-    stds_data_path = NULL,
-    overwrite = FALSE
-) {
-
-  if (
-    file.exists(output_path) &&
-    !overwrite
-  ) {
-    stop(
-      "Configuration file already exists: ",
-      output_path
-    )
-  }
-
-  if (is.null(raw_data_dir)) {
-
-    raw_data_dir <- file.path(
-      "data",
-      experiment_name,
-      "raw_data"
-    )
-  }
-
-  if (is.null(output_dir)) {
-
-    output_dir <- file.path(
-      "data",
-      experiment_name,
-      "analyzed_data"
-    )
-  }
-
-  config <- list(
-    experiment = list(
-      name = experiment_name,
-      file_name = file_name
-    ),
-    standards = list(
-      used = stds_used,
-      calibration_standards = calibration_standards
-    ),
-    paths = list(
-      raw_data_dir = raw_data_dir,
-      output_dir = output_dir,
-      stds_data_path = stds_data_path
-    ),
-    notes = ""
-  )
-
-  yaml::write_yaml(
-    config,
-    output_path
-  )
-
-  invisible(output_path)
-}
-
 
 #' Get the element specified in the EA experiment configuration
 #'

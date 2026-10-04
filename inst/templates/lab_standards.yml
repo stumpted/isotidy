@@ -1,0 +1,17 @@
+# IRMS Laboratory Standards
+#
+# This file contains laboratory-specific calibration standards.
+# Copy this template to your laboratory configuration directory
+# and replace the example values with your laboratory's standards.
+
+
+example_standard:
+  element: C
+  delta_value: null
+  delta_uncertainty: null
+  scale: VPDB
+  element_fraction: 0.40
+  standard_id: "example_standard"
+  applicable_peripherals:
+    - EA
+    - GC

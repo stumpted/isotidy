@@ -1,0 +1,56 @@
+# GC Pipeline Configuration - YAML Format
+# This file documents all parameters used for processing your GC data.
+# Keep it in your analyzed_data folder alongside your results.
+
+
+experiment:
+  # Name matching your data folder in data/
+  name: "202609_FAMES_gc"
+
+  # Raw data filename without extension
+  file_name: "202609_FAMES_gc"
+
+  #Which peripheral is this experiment using?
+  peripheral: "GC"
+
+  # Brief description of what this experiment was
+  description: "Fatty acid methyl ester gc measurements"
+
+standards:
+  used:
+    - F8
+
+processing:
+  # Element being processed in this experiment
+  element: C
+
+  # How to identify blanks
+  blank_identifiers:
+    - "blank"
+
+paths:
+  # Leave these as NULL to use default structure:
+  # - raw_data_dir: data/{experiment.name}/raw_data/
+  # - output_dir: data/{experiment.name}/analyzed_data/
+  # - stds_data_path: inst/config/lab_standards.yml
+  #
+  # Only fill these in if your structure is non-standard:
+
+  raw_data_dir: null      # Leave as null to use default
+  output_dir: null        # Leave as null to use default
+  stds_data_path: null    # Leave as null to use default
+
+notes: |
+  Add any notes about this run here.
+  Multiple lines are fine.
+  For example:
+    - Instrument was recalibrated on 2026-05-01
+    - Sample set 1-5 had higher noise due to weather
+    - TTAS standard ran as quality check only
+
+
+metadata:
+  date_run: "2026-09"
+  analyst: "Annie C. Edwards"
+  instrument: "GC-IRMS"
+  weather_notes: "bibe"

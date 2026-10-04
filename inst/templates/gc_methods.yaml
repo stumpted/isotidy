@@ -1,0 +1,18 @@
+# GC-IRMS Method Configuration
+#
+# This file contains laboratory-specific GC method information.
+# Copy this template to your laboratory configuration directory
+# and replace the example values with your own methods.
+#
+# Each method should define the information needed to identify
+# chromatographic peaks and associate them with compounds.
+
+methods:
+
+  example_method:
+
+    compounds:
+
+      example_compound:
+        retention_time: null
+        tolerance: null

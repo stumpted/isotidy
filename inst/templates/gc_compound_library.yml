@@ -1,0 +1,24 @@
+# GC-IRMS Compound Library
+#
+# This file contains laboratory-specific compounds used in GC-IRMS analyses.
+# Copy this template to your laboratory configuration directory and
+# replace the example compound with the compounds relevant to your lab.
+
+fatty_acids:
+
+  example_compound:
+    full_name: "Example fatty acid"
+    formula: null
+    molar_mass: null
+    ester_type: null
+    base_compound: null
+
+amino_acids:
+
+  example_compound:
+    full_name: "Example amino acid"
+    abbreviation_3letter: null
+    formula: null
+    molar_mass: null
+
+replicate_groups: {}
