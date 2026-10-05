@@ -1,15 +1,16 @@
 # EA-IRMS adapter: convert raw EA data to the canonical format and validate it.
 
+
 #' Adapt raw EA-IRMS data to the canonical format
 #'
-#' Uses the EA peripheral schema to map raw instrument columns into the
-#' package-wide canonical IRMS data format.
+#' Uses the EA peripheral schema and isotope-system configuration to map raw
+#' instrument columns into the package-wide canonical IRMS data format.
 #'
 #' @param raw_df Raw EA-IRMS data frame.
 #' @param config Experiment configuration loaded from YAML.
 #' @param schema EA schema loaded with get_peripheral_schema().
 #' @param isotope Isotope system used for processing, e.g. "C13".
-#' @param run_id Optional run identifier. Defaults to config$experiment$name.
+#' @param run_id Optional run identifier. Defaults to config$experiment_name.
 #' @param instrument Instrument name stored in the canonical data.
 #' @param verbose Print progress messages.
 #'
@@ -67,37 +68,177 @@ adapt_ea_data <- function(
 
   element <- get_config_element(config)
 
-  # Resolve isotope-specific mapping
-  if (is.null(mapping$isotope_ratio)) {
+  isotope_system <- get_isotope_system(
+    isotope = isotope,
+    config = config
+  )
+
+  isotope_mass <- isotope_system$isotope_mass
+  reference_isotope_mass <- isotope_system$reference_isotope_mass
+
+  if (is.null(isotope_mass)) {
+    stop(
+      "Isotope system '",
+      isotope,
+      "' does not define 'isotope_mass'."
+    )
+  }
+
+  if (is.null(reference_isotope_mass)) {
+    stop(
+      "Isotope system '",
+      isotope,
+      "' does not define 'reference_isotope_mass'."
+    )
+  }
+
+  resolve_template <- function(
+    template,
+    mass = NULL
+  ) {
+
+    if (
+      length(template) != 1 ||
+      is.na(template) ||
+      !nzchar(template)
+    ) {
+      stop("EA column mapping templates must contain one non-empty value.")
+    }
+
+    template <- stringr::str_replace_all(
+      template,
+      fixed("{element}"),
+      element
+    )
+
+    template <- stringr::str_replace_all(
+      template,
+      fixed("{isotope_mass}"),
+      as.character(isotope_mass)
+    )
+
+    template <- stringr::str_replace_all(
+      template,
+      fixed("{reference_isotope_mass}"),
+      as.character(reference_isotope_mass)
+    )
+
+    if (!is.null(mass)) {
+      template <- stringr::str_replace_all(
+        template,
+        fixed("{mass}"),
+        as.character(mass)
+      )
+    }
+
+    template
+  }
+
+  if (!is.null(mapping$isotope_ratio)) {
+
+    resolved_isotope_ratio <- resolve_template(
+      mapping$isotope_ratio
+    )
+
+  } else {
+
     stop(
       "The EA-IRMS schema does not contain an ",
       "'isotope_ratio' mapping."
     )
   }
 
-  if (!is.list(mapping$isotope_ratio)) {
+  measurement_masses <- schema$measurement_masses
+
+  if (
+    is.null(measurement_masses) &&
+    any(
+      c("area", "amplitude", "background") %in%
+      names(mapping)
+    )
+  ) {
     stop(
-      "'isotope_ratio' in the EA-IRMS schema must contain ",
-      "isotope-specific mappings."
+      "The EA-IRMS schema contains mass-dependent mappings but ",
+      "does not define 'measurement_masses'."
     )
   }
 
-  if (!isotope %in% names(mapping$isotope_ratio)) {
-    stop(
-      "No isotope ratio mapping found for isotope '",
-      isotope,
-      "'. Available isotopes: ",
-      paste(
-        names(mapping$isotope_ratio),
-        collapse = ", "
+  if (!is.null(measurement_masses)) {
+
+    measurement_masses <- as.character(
+      unlist(
+        measurement_masses,
+        use.names = FALSE
       )
     )
+
+    if (length(measurement_masses) == 0) {
+      stop(
+        "'measurement_masses' in the EA-IRMS schema cannot be empty."
+      )
+    }
   }
 
-  resolved_mapping <- mapping
+  expand_mass_mapping <- function(
+    mass_mapping
+  ) {
 
-  resolved_mapping$isotope_ratio <-
-    mapping$isotope_ratio[[isotope]]
+    if (is.null(mass_mapping)) {
+      return(NULL)
+    }
+
+    if (!is.list(mass_mapping)) {
+      stop(
+        "Mass-dependent EA mappings must be lists."
+      )
+    }
+
+    template_names <- names(mass_mapping)
+
+    if (
+      length(template_names) != 1 ||
+      template_names[[1]] != "{mass}"
+    ) {
+      stop(
+        "Mass-dependent EA mappings must use '{mass}' as their key."
+      )
+    }
+
+    template <- mass_mapping[[1]]
+
+    resolved <- vapply(
+      measurement_masses,
+      function(mass) {
+        resolve_template(
+          template,
+          mass = mass
+        )
+      },
+      character(1)
+    )
+
+    names(resolved) <- measurement_masses
+
+    resolved
+  }
+
+  resolved_mapping <- list(
+    identifier = mapping$identifier,
+    amount = mapping$amount,
+    peak_number = mapping$peak_number,
+    isotope_ratio = resolved_isotope_ratio,
+    area_all = mapping$area_all,
+    area = expand_mass_mapping(
+      mapping$area
+    ),
+    amplitude = expand_mass_mapping(
+      mapping$amplitude
+    ),
+    background = expand_mass_mapping(
+      mapping$background
+    ),
+    time = mapping$time
+  )
 
   required_mapping <- c(
     "identifier",
@@ -107,10 +248,13 @@ adapt_ea_data <- function(
     "area_all"
   )
 
-  missing_mapping <- setdiff(
-    required_mapping,
-    names(resolved_mapping)
-  )
+  missing_mapping <- required_mapping[
+    vapply(
+      resolved_mapping[required_mapping],
+      is.null,
+      logical(1)
+    )
+  ]
 
   if (length(missing_mapping) > 0) {
     stop(
@@ -122,7 +266,6 @@ adapt_ea_data <- function(
     )
   }
 
-  # Validate that required mappings are single raw column names
   for (field in required_mapping) {
 
     value <- resolved_mapping[[field]]
@@ -141,28 +284,6 @@ adapt_ea_data <- function(
       )
     }
   }
-
-  optional_mapping <- c(
-    "area_44",
-    "area_45",
-    "area_46",
-    "amplitude_44",
-    "amplitude_45",
-    "amplitude_46",
-    "bgd_44",
-    "bgd_45",
-    "bgd_46",
-    "time"
-  )
-
-  # Keep only mappings relevant to EA processing
-  resolved_mapping <- resolved_mapping[
-    names(resolved_mapping) %in%
-      c(
-        required_mapping,
-        optional_mapping
-      )
-  ]
 
   mapped_columns <- unlist(
     resolved_mapping,
@@ -190,15 +311,24 @@ adapt_ea_data <- function(
     mapping = resolved_mapping
   )
 
-  # Default run ID to the experiment name
   if (is.null(run_id)) {
 
     if (!is.null(config$experiment_name)) {
+
       run_id <- config$experiment_name
+
+    } else if (
+      !is.null(config$experiment) &&
+      !is.null(config$experiment$name)
+    ) {
+
+      run_id <- config$experiment$name
+
     } else {
+
       stop(
-        "No 'run_id' was supplied and ",
-        "'config$experiment_name' is missing."
+        "No 'run_id' was supplied and no experiment name ",
+        "could be found in the config."
       )
     }
   }
@@ -253,14 +383,15 @@ adapt_ea_data <- function(
     schema = schema
   )
 
-  validate_ea_canonical_data(canonical_df)
+  validate_ea_canonical_data(
+    canonical_df
+  )
 
   if (verbose) {
     message(
       "Adapted ",
       nrow(canonical_df),
-      " EA-IRMS rows ",
-      "for element ",
+      " EA-IRMS rows for element ",
       element,
       " using isotope ",
       isotope,
@@ -403,6 +534,9 @@ apply_ea_validation_rules <- function(
 
 #' Add EA-specific columns to canonical data
 #'
+#' Adds mass-specific area, amplitude, and background measurements
+#' defined by the EA peripheral schema.
+#'
 #' @param canonical_df Canonical data frame.
 #' @param raw_df Raw EA-IRMS data frame.
 #' @param mapping Resolved EA column mapping.
@@ -414,52 +548,57 @@ add_ea_specific_columns <- function(
     mapping
 ) {
 
-  if (!is.null(mapping$area_44)) {
-    canonical_df$area_44 <-
-      raw_df[[mapping$area_44]]
+  add_mass_columns <- function(
+    canonical_df,
+    raw_df,
+    mass_mapping,
+    prefix
+  ) {
+
+    if (is.null(mass_mapping)) {
+      return(canonical_df)
+    }
+
+    for (mass in names(mass_mapping)) {
+
+      column_name <- paste0(
+        prefix,
+        "_",
+        mass
+      )
+
+      raw_column <- mass_mapping[[mass]]
+
+      canonical_df[[column_name]] <-
+        raw_df[[raw_column]]
+    }
+
+    canonical_df
   }
 
-  if (!is.null(mapping$area_45)) {
-    canonical_df$area_45 <-
-      raw_df[[mapping$area_45]]
-  }
+  canonical_df <- add_mass_columns(
+    canonical_df = canonical_df,
+    raw_df = raw_df,
+    mass_mapping = mapping$area,
+    prefix = "area"
+  )
 
-  if (!is.null(mapping$area_46)) {
-    canonical_df$area_46 <-
-      raw_df[[mapping$area_46]]
-  }
+  canonical_df <- add_mass_columns(
+    canonical_df = canonical_df,
+    raw_df = raw_df,
+    mass_mapping = mapping$amplitude,
+    prefix = "amplitude"
+  )
 
-  if (!is.null(mapping$amplitude_44)) {
-    canonical_df$amplitude_44 <-
-      raw_df[[mapping$amplitude_44]]
-  }
-
-  if (!is.null(mapping$amplitude_45)) {
-    canonical_df$amplitude_45 <-
-      raw_df[[mapping$amplitude_45]]
-  }
-
-  if (!is.null(mapping$amplitude_46)) {
-    canonical_df$amplitude_46 <-
-      raw_df[[mapping$amplitude_46]]
-  }
-
-  if (!is.null(mapping$bgd_44)) {
-    canonical_df$bgd_44 <-
-      raw_df[[mapping$bgd_44]]
-  }
-
-  if (!is.null(mapping$bgd_45)) {
-    canonical_df$bgd_45 <-
-      raw_df[[mapping$bgd_45]]
-  }
-
-  if (!is.null(mapping$bgd_46)) {
-    canonical_df$bgd_46 <-
-      raw_df[[mapping$bgd_46]]
-  }
+  canonical_df <- add_mass_columns(
+    canonical_df = canonical_df,
+    raw_df = raw_df,
+    mass_mapping = mapping$background,
+    prefix = "bgd"
+  )
 
   if (!is.null(mapping$time)) {
+
     canonical_df$time_code <-
       raw_df[[mapping$time]]
   }
@@ -470,8 +609,7 @@ add_ea_specific_columns <- function(
 
 #' Validate canonical EA-IRMS data
 #'
-#' Checks that the EA adapter produced all required canonical and
-#' EA-specific fields.
+#' Checks that the EA adapter produced all required canonical fields.
 #'
 #' @param canonical_df Canonical EA-IRMS data.
 #'
