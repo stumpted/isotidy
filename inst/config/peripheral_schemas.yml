@@ -1,58 +1,45 @@
-# IRMS Pipeline: Peripheral Data Schemas
-# Defines column mappings, data shapes, validation rules, and isotope systems
-# for each instrument.
-
-# Peripheral schemas
-
 EA:
   name: "Elemental Analyzer IRMS"
   description: "Bulk isotope analysis via elemental combustion"
   data_shape: "sample_per_row"
   analysis_type: "bulk"
 
-  # Column mappings: internal_name -> actual_column_name
-  # The loader will rename columns to internal names for consistent processing
   column_mapping:
     identifier: "Identifier 1"
     amount: "Amount"
     peak_number: "Peak Nr"
 
-    # Isotope-dependent mappings
-    isotope_ratio:
-      C13: "d 13C/12C"
-      N15: "d 15N/14N"
+    isotope_ratio: "d {isotope_mass}/{reference_isotope_mass}"
 
-    area_all: "Area All"
-    area_44: "Area 44"
-    area_45: "Area 45"
-    area_46: "Area 46"
-    amplitude_44: "Ampl  44"
-    amplitude_45: "Ampl  45"
-    amplitude_46: "Ampl  46"
-    bgd_44: "BGD 44"
-    bgd_45: "BGD 45"
-    bgd_46: "BGD 46"
+    area:
+      "{mass}": "Area {mass}"
+
+    amplitude:
+      "{mass}": "Ampl  {mass}"
+
+    background:
+      "{mass}": "BGD {mass}"
+
     time: "Time Code"
 
-  # Data validation
-  validation:
-    # Keep only these peak numbers (center peak typically)
-    peak_numbers_to_keep: [3]
-    # Exclude these identifiers (QA/QC, setup/teardown)
-    exclude_identifiers: ["on_off", "linearity"]
-    # Required columns (must be present after isotope-specific mapping)
-    required_columns: ["identifier", "peak_number", "isotope_ratio", "area_all"]
+  measurement_masses:
+    - 44
+    - 45
+    - 46
 
-  # Metadata and calibration
+  validation:
+    peak_numbers_to_keep: [3]
+    exclude_identifiers: ["on_off", "linearity"]
+    required_columns:
+      - "identifier"
+      - "peak_number"
+      - "isotope_ratio"
+
   metadata:
     use_standards_database: true
-    standards_db_path: "scripts/inst/config/lab_standards.yml"
     standards_match_column: "identifier"
     blank_identifier_pattern: "Blank"
 
-  # Replicate identification
-  # Technical replicates share same sample but run sequentially
-  # Pattern can be regex or column-based
   replicates:
     identify_by: "name_pattern"
     pattern: "^(.+?)(_\\d+)?$"
@@ -60,52 +47,46 @@ EA:
 
 
 GC:
-  name: "Gas Chromatograph IRMS (Compound-Specific)"
+  name: "Gas Chromatograph IRMS"
   description: "Compound-specific isotope analysis"
-  data_shape: "compound_per_row"
+  data_shape: "peak_per_row"
   analysis_type: "compound_specific"
 
   column_mapping:
-    peak_number: "Peak"
-    compound_name: "Analyte"
+    injection_id: "Index"
+    sample_id: "Label"
+    analysis_no: "Analysis No."
+    comment: "Comment"
+    sample_type: "Sample Type"
+    status: "Status"
+    start_time: "Start Time"
+    stop_time: "Stop Time"
 
-    # Isotope-dependent mappings
-    isotope_ratio_raw:
-      C13: "δ13C"
-    isotope_ratio_measured:
-      C13: "measured"
-    isotope_ratio_corrected:
-      C13: "measured.1"
+    peak_number: "Peak Number"
 
-    rms_error: "RMS error.1"
-    delta_delta: "Dd"
-    # Reference gas info
-    co2_ref_value: "CO2 Reference Gas"
+    isotope_ratio: "d{isotope_mass}{element}"
+    retention_time: "RetentionTime {reference_mass}.00 m/z"
+    peak_amplitude: "PeakAmplitude {reference_mass}.00 m/z"
+    peak_area: "PeakArea {reference_mass}.00 m/z"
 
   validation:
-    # Exclude CO2 reference (or keep it with special flag)
-    exclude_compounds: ["CO2"]
-    # Required columns (after isotope-specific mapping)
-    required_columns: ["peak_number", "compound_name", "isotope_ratio_corrected"]
+    required_columns:
+      - "injection_id"
+      - "sample_id"
+      - "analysis_no"
+      - "peak_number"
+      - "isotope_ratio"
+      - "retention_time"
+      - "peak_amplitude"
+      - "peak_area"
 
   metadata:
+    use_compound_library: true
     compound_library_path: "config/gc_compound_library.yml"
-    use_reference_gas: true
 
   replicates:
-    identify_by: "name_pattern"
-    # Fatty acids/AAs often labeled like: C14M (methyl) and C14E (ether)
-    # - same compound, different ester
-    pattern: "^([A-Z0-9]+)([ME])$"
-    group_column: null
-
-  # GC-specific preprocessing
-  preprocessing:
-    # Skip rows at top (metadata, headers)
-    skip_rows: [0, 1, 2]
-    header_row: 3
-    # Multiple sections possible if multiple samples in one sheet
-    auto_detect_sections: true
+    identify_by: "injection_id"
+    group_column: "sample_id"
 
 
 GB:
@@ -117,19 +98,19 @@ GB:
   column_mapping:
     identifier: "Sample"
 
-    # Isotope-dependent mapping
-    isotope_ratio:
-      C13: "d13C"
+    isotope_ratio: "d{isotope_mass}{element}"
 
-    area: "Amplitude"
+    signal: "Amplitude"
     reference_delta: "Reference delta"
     delta_difference: "Dd"
 
   validation:
-    required_columns: ["identifier", "isotope_ratio"]
+    required_columns:
+      - "identifier"
+      - "isotope_ratio"
 
   metadata:
-    use_standards_database: false  # Gasbench often self-calibrating
+    use_standards_database: false
 
   replicates:
     identify_by: "name_pattern"

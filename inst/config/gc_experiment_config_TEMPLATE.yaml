@@ -24,6 +24,9 @@ processing:
   # Element being processed in this experiment
   element: C
 
+  # Which isotope system to study
+  isotope: C13
+
   # How to identify blanks
   blank_identifiers:
     - "blank"
