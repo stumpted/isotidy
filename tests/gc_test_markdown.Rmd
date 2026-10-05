@@ -9,20 +9,29 @@ date: "2026-10-04"
 config_path <- file.path(
   "..",
   "data",
-  "202605_prelim_EA_experiment",
+  "202609_tp_FAMES_GC-IRMS",
+  "tp1-1_raw",
   "analyzed_data",
   "experiment_config.yaml"
 )
 
-config <- load_IRMS_config(config_path)
+lab_config_dir <- file.path(
+  "..",
+  "..",
+  "sessions_lab_isotidy_config"
+)
+
+config <- load_IRMS_config(config_path, lab_config_dir)
 
 raw_data_path <- file.path(
   "..",
   config$raw_data_dir,
-  paste0(config$file_name, ".xls")
+  paste0(config$file_name, ".xlsx")
 )
 
-raw_ea <- readxl::read_xls(raw_data_path)
+raw_gc <- import_gc_data(
+  raw_data_path
+)
 
 schema_path <- file.path(
   "inst",
@@ -40,6 +49,15 @@ schema <- get_peripheral_schema(
 stds_reference_df <- config$stds_reference_df
 
 ```
+```{r test adapter}
+
+gc_data <- adapt_gc_data(
+  raw_gc,
+  isotope = "C13"
+)
+
+```
+
 
 ```{r test result}
 
