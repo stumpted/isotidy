@@ -1,14 +1,116 @@
 # Laboratory standards: load the reference table, flag standards in the data, merge reference values.
 
+# Helper function to handle bulk and compound specific standards
+normalize_yaml_standards <- function(records) {
+  purrr::imap_dfr(records, function(record, record_name) {
+    if (!is.list(record)) {
+      stop("Standard '", record_name, "' must be a YAML mapping.")
+    }
+
+    standard_id <- as.character(record$standard_id %||% record_name)
+    values <- record$compound_values %||% record$compound_delta_values
+
+    if (is.null(values)) {
+      compound_ids <- NA_character_
+      values <- list(list(
+        delta_value = record$delta_value,
+        delta_uncertainty = record$delta_uncertainty
+      ))
+    } else if (is.null(names(values))) {
+      # Support a sequence of one-item mappings, e.g.
+      # - C14-ME: -29.98
+      valid_entries <- vapply(
+        values,
+        function(x) is.list(x) && length(x) == 1 &&
+          !is.null(names(x)) && nzchar(names(x)[[1]]),
+        logical(1)
+      )
+
+      if (!all(valid_entries)) {
+        stop(
+          "Compound values for standard '", record_name,
+          "' must map each compound ID to a value."
+        )
+      }
+
+      compound_ids <- vapply(values, function(x) names(x)[[1]], character(1))
+      values <- lapply(values, `[[`, 1)
+    } else {
+      # Support a named mapping, e.g. C14M: {delta_value: -29.98}
+      compound_ids <- names(values)
+    }
+
+    if (length(compound_ids) != length(values) ||
+        anyNA(compound_ids) ||
+        anyDuplicated(compound_ids)) {
+      stop("Compound IDs for standard '", record_name, "' must be unique.")
+    }
+
+    if (any(!is.na(compound_ids) & !nzchar(compound_ids))) {
+      stop("Compound IDs for standard '", record_name, "' cannot be empty.")
+    }
+
+    peripheral_values <- as.character(
+      unlist(record$applicable_peripherals, use.names = FALSE)
+    )
+
+    purrr::map2_dfr(values, compound_ids, function(value, compound_id) {
+      if (is.list(value)) {
+        delta_value <- value$delta_value
+        delta_uncertainty <- value$delta_uncertainty
+      } else {
+        delta_value <- value
+        delta_uncertainty <- NULL
+      }
+
+      delta_value <- suppressWarnings(as.numeric(delta_value))
+      delta_uncertainty <- if (is.null(delta_uncertainty)) {
+        NA_real_
+      } else {
+        suppressWarnings(as.numeric(delta_uncertainty))
+      }
+
+      if (length(delta_value) != 1 || is.na(delta_value)) {
+        stop(
+          "Standard '", record_name,
+          "' must have a numeric delta value for every entry."
+        )
+      }
+
+      if (length(delta_uncertainty) != 1) {
+        stop(
+          "Standard '", record_name,
+          "' uncertainty must be a single number or null."
+        )
+      }
+
+      tibble::tibble(
+        element = as.character(record$element %||% NA_character_),
+        delta_value = delta_value,
+        delta_uncertainty = delta_uncertainty,
+        scale = as.character(record$scale %||% NA_character_),
+        element_fraction = if (is.null(record$element_fraction)) {
+          NA_real_
+        } else {
+          as.numeric(record$element_fraction)
+        },
+        standard_id = standard_id,
+        compound_id = compound_id,
+        applicable_peripherals = list(peripheral_values)
+      )
+    })
+  })
+}
+
 #' Load laboratory standards
 #'
-#' Loads and validates the laboratory standards reference database.
+#' Loads and validates scalar or compound-specific laboratory standards.
 #'
 #' @param path Path to the standards YAML or CSV file.
 #' @param peripheral Optional peripheral name used to filter applicable standards.
 #' @param standard_ids Optional standard IDs to load.
 #' @param verbose Print loading information.
-#' @return A data frame containing laboratory standards.
+#' @return A data frame of laboratory standard reference values.
 #' @export
 load_lab_standards <- function(
     path,
@@ -24,17 +126,13 @@ load_lab_standards <- function(
     )
   }
 
-  if (grepl(
-    "\\.ya?ml$",
-    path,
-    ignore.case = TRUE
-  )) {
+  if (grepl("\\.ya?ml$", path, ignore.case = TRUE)) {
 
-    standards <- yaml::read_yaml(path)
+    records <- yaml::read_yaml(path)
 
     if (
-      is.null(standards) ||
-      length(standards) == 0
+      is.null(records) ||
+      length(records) == 0
     ) {
       stop(
         "Laboratory standards file is empty: ",
@@ -42,10 +140,7 @@ load_lab_standards <- function(
       )
     }
 
-    standards <- purrr::map_dfr(
-      standards,
-      tibble::as_tibble
-    )
+    standards <- normalize_yaml_standards(records)
 
   } else if (grepl(
     "\\.csv$",
@@ -57,6 +152,11 @@ load_lab_standards <- function(
       path,
       show_col_types = FALSE
     )
+
+    # Existing CSV reference files describe scalar standards.
+    if (!"compound_id" %in% names(standards)) {
+      standards$compound_id <- NA_character_
+    }
 
   } else {
 
@@ -73,6 +173,7 @@ load_lab_standards <- function(
     "scale",
     "element_fraction",
     "standard_id",
+    "compound_id",
     "applicable_peripherals"
   )
 
@@ -88,6 +189,31 @@ load_lab_standards <- function(
         missing_columns,
         collapse = ", "
       )
+    )
+  }
+
+  if (
+    anyNA(standards$standard_id) ||
+    any(!nzchar(as.character(standards$standard_id)))
+  ) {
+    stop(
+      "Laboratory standards must have non-empty standard IDs."
+    )
+  }
+
+  if (anyNA(standards$delta_value)) {
+    stop(
+      "Laboratory standards must have a numeric delta_value ",
+      "for every standard or compound."
+    )
+  }
+
+  # A standard ID may appear on multiple rows when each row has a
+  # different compound ID. Duplicate standard/compound pairs are invalid.
+  if (anyDuplicated(standards[c("standard_id", "compound_id")])) {
+    stop(
+      "Duplicate standard_id + compound_id entries found ",
+      "in laboratory standards."
     )
   }
 
@@ -131,23 +257,16 @@ load_lab_standards <- function(
     ]
   }
 
-  if (anyDuplicated(standards$standard_id)) {
-    stop(
-      "Duplicate standard IDs found in laboratory standards."
-    )
-  }
-
   if (verbose) {
     message(
       "Loaded ",
       nrow(standards),
-      " laboratory standards."
+      " laboratory standard reference values."
     )
   }
 
   standards
 }
-
 
 identify_standards <- function(df, standard_names, verbose = TRUE) {
 
