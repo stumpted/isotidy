@@ -19,6 +19,14 @@ experiment:
 standards:
   used:
     - F8
+  gc:
+    external:
+      sample_id: F8
+      reference_id: F8
+      # Injection IDs omitted from both the per-injection and daily offsets.
+      exclude_injection_ids: []
+      # Compound IDs omitted from all F8 offset averages, e.g. [C20M].
+      exclude_compound_ids: []
 
 processing:
   # Element being processed in this experiment
@@ -30,6 +38,16 @@ processing:
   # How to identify blanks
   blank_identifiers:
     - "blank"
+
+  gc:
+    # Manually selected measurements excluded before standard correction.
+    # Use one mapping per analysis; omit peak_number to exclude all peaks in
+    # that analysis. These exclusions apply to sample and standard rows.
+    exclude_measurements: []
+    # Example:
+    # exclude_measurements:
+    #   - analysis_no: "Athena11759"
+    #     reason: "faulty peak"
 
 paths:
   # Leave these as NULL to use default structure:

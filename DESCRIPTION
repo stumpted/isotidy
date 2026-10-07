@@ -13,13 +13,16 @@ Imports:
     ggplot2,
     purrr,
     readr,
+    readxl,
     rlang,
     stats,
     stringr,
     tibble,
+    tidyr,
     utils,
     yaml
 Suggests: 
     rmarkdown,
+    knitr.
     testthat (>= 3.0.0)
 Config/testthat/edition: 3

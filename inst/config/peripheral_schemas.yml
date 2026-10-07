@@ -9,7 +9,9 @@ EA:
     amount: "Amount"
     peak_number: "Peak Nr"
 
-    isotope_ratio: "d {isotope_mass}/{reference_isotope_mass}"
+    isotope_ratio: "d {isotope_mass}{element}/{reference_isotope_mass}{element}"
+
+    area_all: "Area All"
 
     area:
       "{mass}": "Area {mass}"
@@ -85,7 +87,7 @@ GC:
     compound_library_path: "config/gc_compound_library.yml"
 
   replicates:
-    identify_by: "injection_id"
+    identify_by: "analysis_no"
     group_column: "sample_id"
 
 

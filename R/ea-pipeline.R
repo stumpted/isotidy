@@ -191,6 +191,13 @@ process_ea <- function(
     verbose = verbose
   )
 
+  visualization_data <- summarize_replicates(
+    data = final_output,
+    peripheral = "EA",
+    config = config,
+    verbose = verbose
+  )
+
   # 14. Return results
   models <- list(
     mass = mass_model,
@@ -202,6 +209,7 @@ process_ea <- function(
     list(
       data = data,
       output = final_output,
+      visualization_data = visualization_data,
       standards = final_standards,
       mass_standards = mass_stds,
       mass_model = mass_model,

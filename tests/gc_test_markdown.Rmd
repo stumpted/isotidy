@@ -6,8 +6,7 @@ date: "2026-10-06"
 
 ```{r setup}
 experiment_config_relative <- file.path(
-  "data", "202609_tp_FAMES_GC-IRMS", "tp1-1_raw",
-  "analyzed_data", "experiment_config.yaml"
+  "data", "202609_tp_FAMES_GC-IRMS", "experiment_config.yaml"
 )
 project_root_candidates <- c(".", "..", "../..", "../../..")
 project_root_matches <- project_root_candidates[vapply(
@@ -30,12 +29,65 @@ gc_methods_path <- normalizePath(
 )
 
 config <- load_IRMS_config(config_path, lab_config_dir)
-raw_data_path <- file.path(
-  project_root, config$raw_data_dir, paste0(config$file_name, ".xlsx")
-)
-raw_gc <- import_gc_data(raw_data_path)
+raw_gc <- load_gc_data(config)
 gc_method_name <- "YP_CO2_F8_27m"
 external_standard_id <- "F8"
+
+# Imported rows should be unique across all instrument fields, even when an
+# observation was present in more than one overlapping export.
+stopifnot("source_file" %in% names(raw_gc))
+stopifnot(nrow(raw_gc) > 0)
+gc_yaml <- yaml::read_yaml(config_path)$gc
+gc_selected_input_set <- gc_yaml$input_sets[[gc_yaml$selected_input_set]]
+stopifnot(all(grepl(
+  gc_selected_input_set$file_pattern,
+  unique(raw_gc$source_file),
+  ignore.case = TRUE
+)))
+gc_observation_fields <- setdiff(names(raw_gc), "source_file")
+stopifnot(!anyDuplicated(raw_gc[, gc_observation_fields, drop = FALSE]))
+stopifnot(all(!is.na(raw_gc$source_file) & nzchar(raw_gc$source_file)))
+```
+
+## Check replicate summary behavior
+
+This fixture checks that repeated rows within one analysis are first reduced
+to one analysis value, then summarized across analytical replicates. The
+standard row should be omitted.
+
+```{r replicate-summary-check}
+replicate_fixture <- data.frame(
+  run_id = "fixture_run",
+  method_name = "fixture_method",
+  sample_id = c("sample_A", "sample_A", "sample_A", "F8"),
+  injection_id = c("1", "1", "1", "1"),
+  analysis_no = c("analysis_1", "analysis_1", "analysis_2", "analysis_3"),
+  element = "C",
+  isotope = "C13",
+  compound_id = "FA_1",
+  is_external_standard = c(FALSE, FALSE, FALSE, TRUE),
+  delta_value_final = c(8, 12, 14, 999)
+)
+gc_replicate_schema <- list(replicates = list(
+  identify_by = "analysis_no",
+  group_column = "sample_id"
+))
+replicate_summary <- summarize_replicates(
+  data = replicate_fixture,
+  peripheral = "GC",
+  schema = gc_replicate_schema,
+  verbose = FALSE
+)
+stopifnot(nrow(replicate_summary) == 1)
+stopifnot(replicate_summary$sample_id[[1]] == "sample_A")
+stopifnot(replicate_summary$n_replicates[[1]] == 2L)
+stopifnot(isTRUE(all.equal(
+  replicate_summary$delta_value_final_mean[[1]], 12
+)))
+stopifnot(isTRUE(all.equal(
+  replicate_summary$delta_value_final_sd[[1]], sqrt(8)
+)))
+replicate_summary
 ```
 
 ## Process GC peaks through external-standard correction
@@ -52,6 +104,265 @@ gc_result <- process_gc(
 )
 
 gc_result$daily_offsets
+stopifnot(is.data.frame(gc_result$visualization_data))
+stopifnot("delta_value_final_mean" %in% names(gc_result$visualization_data))
+stopifnot("delta_value_final_sd" %in% names(gc_result$visualization_data))
+```
+
+## Check daily offsets and standard injection exclusions
+
+Each injection offset is the mean of its matched compound offsets. The daily
+offset is the unweighted mean of included injection offsets for that date.
+Injection IDs are checked together with their correction date because an ID
+may occur on more than one date.
+
+```{r standard-offset-check}
+expected_daily_offsets <- gc_result$injection_offsets |>
+  dplyr::group_by(correction_date) |>
+  dplyr::summarise(
+    delta_offset = mean(delta_offset),
+    n_injections = dplyr::n(),
+    .groups = "drop"
+  ) |>
+  dplyr::arrange(correction_date)
+actual_daily_offsets <- gc_result$daily_offsets |>
+  dplyr::arrange(correction_date)
+stopifnot(isTRUE(all.equal(
+  expected_daily_offsets,
+  actual_daily_offsets,
+  check.attributes = FALSE
+)))
+
+excluded_standard_id <- as.character(
+  gc_result$injection_offsets$injection_id[[1]]
+)
+gc_standard_exclusion_result <- process_gc(
+  raw_df = raw_gc,
+  config = config,
+  gc_methods = gc_methods_path,
+  method_name = gc_method_name,
+  external_standard_id = external_standard_id,
+  isotope = "C13",
+  verbose = FALSE,
+  exclude_standard_injection_ids = excluded_standard_id
+)
+stopifnot(excluded_standard_id %in%
+  gc_standard_exclusion_result$excluded_standard_injection_ids)
+stopifnot(!(excluded_standard_id %in%
+  as.character(gc_standard_exclusion_result$injection_offsets$injection_id)))
+# Standard rows remain reviewable in the processed data; only their offsets are
+# excluded from the correction calculation.
+stopifnot(any(as.character(gc_standard_exclusion_result$data$injection_id) ==
+  excluded_standard_id))
+expected_after_exclusion <- gc_standard_exclusion_result$injection_offsets |>
+  dplyr::group_by(correction_date) |>
+  dplyr::summarise(
+    delta_offset = mean(delta_offset),
+    n_injections = dplyr::n(),
+    .groups = "drop"
+  ) |>
+  dplyr::arrange(correction_date)
+actual_after_exclusion <- gc_standard_exclusion_result$daily_offsets |>
+  dplyr::arrange(correction_date)
+stopifnot(isTRUE(all.equal(
+  expected_after_exclusion,
+  actual_after_exclusion,
+  check.attributes = FALSE
+)))
+```
+
+## Check manual peak exclusions
+
+Manual exclusions are selected explicitly by analysis and peak. The selector
+can target a sample or standard peak. This check targets an F8 peak so it can
+verify the effect on its injection offset. The selector is applied before
+offset calculation, and excluded rows are kept in the exclusion audit table.
+
+```{r manual-exclusion-check}
+gc_review <- adapt_gc_data(
+  raw_df = raw_gc,
+  config = config,
+  isotope = "C13",
+  verbose = FALSE,
+  gc_methods = gc_methods_path,
+  method_name = gc_method_name
+)
+standard_candidates <- gc_result$injection_offsets |>
+  dplyr::filter(n_compounds >= 2) |>
+  dplyr::pull(injection_id)
+stopifnot(length(standard_candidates) > 0)
+manual_standard_id <- as.character(standard_candidates[[1]])
+manual_reference_id <- gc_result$external_reference_id
+manual_reference_compounds <- config$stds_reference_df |>
+  dplyr::filter(as.character(standard_id) == manual_reference_id) |>
+  dplyr::pull(compound_id) |>
+  as.character()
+manual_standard_row <- gc_review |>
+  dplyr::filter(
+    as.character(injection_id) == manual_standard_id,
+    compound_match_status == "matched",
+    as.character(compound_id) %in% manual_reference_compounds,
+    !as.character(compound_id) %in% as.character(
+      config$gc_standards$external$exclude_compound_ids
+    ),
+    is.finite(delta_value)
+  ) |>
+  dplyr::slice(1)
+stopifnot(nrow(manual_standard_row) == 1)
+
+manual_exclusion <- data.frame(
+  analysis_no = as.character(manual_standard_row$analysis_no),
+  peak_number = manual_standard_row$peak_number,
+  reason = "Markdown functionality check"
+)
+manual_key_rows <- gc_review |>
+  dplyr::filter(
+    as.character(analysis_no) == manual_exclusion$analysis_no[[1]],
+    as.character(peak_number) == as.character(manual_exclusion$peak_number[[1]])
+  )
+stopifnot(nrow(manual_key_rows) > 0)
+
+gc_manual_exclusion_result <- process_gc(
+  raw_df = raw_gc,
+  config = config,
+  gc_methods = gc_methods_path,
+  method_name = gc_method_name,
+  external_standard_id = external_standard_id,
+  isotope = "C13",
+  verbose = FALSE,
+  exclude_measurements = manual_exclusion
+)
+if (nrow(gc_manual_exclusion_result$unmatched_measurement_exclusions) > 0) {
+  print(gc_manual_exclusion_result$unmatched_measurement_exclusions)
+  stop("The manually selected GC peak did not match.")
+}
+stopifnot(nrow(gc_manual_exclusion_result$excluded_measurements) ==
+  nrow(manual_key_rows))
+stopifnot(all(gc_manual_exclusion_result$excluded_measurements$exclusion_reason ==
+  "Markdown functionality check"))
+stopifnot(!any(
+  as.character(gc_manual_exclusion_result$data$analysis_no) ==
+    manual_exclusion$analysis_no[[1]] &
+    as.character(gc_manual_exclusion_result$data$peak_number) ==
+      as.character(manual_exclusion$peak_number[[1]])
+))
+manual_standard_date <- as.Date(manual_standard_row$start_time[[1]])
+baseline_standard_count <- gc_result$injection_offsets |>
+  dplyr::filter(
+    as.character(injection_id) == manual_standard_id,
+    correction_date == manual_standard_date
+  ) |>
+  dplyr::pull(n_compounds)
+manual_standard_count <- gc_manual_exclusion_result$injection_offsets |>
+  dplyr::filter(
+    as.character(injection_id) == manual_standard_id,
+    correction_date == manual_standard_date
+  ) |>
+  dplyr::pull(n_compounds)
+excluded_standard_peak_count <- manual_key_rows |>
+  dplyr::filter(
+    as.Date(start_time) == manual_standard_date,
+    as.character(compound_id) %in% manual_reference_compounds,
+    is.finite(delta_value)
+  ) |>
+  nrow()
+stopifnot(length(baseline_standard_count) == 1)
+if (length(manual_standard_count) == 0) {
+  manual_standard_count <- 0L
+}
+stopifnot(length(manual_standard_count) == 1)
+stopifnot(manual_standard_count ==
+  baseline_standard_count - excluded_standard_peak_count)
+
+expected_manual_daily_offsets <- gc_manual_exclusion_result$injection_offsets |>
+  dplyr::group_by(correction_date) |>
+  dplyr::summarise(
+    delta_offset = mean(delta_offset),
+    n_injections = dplyr::n(),
+    .groups = "drop"
+  ) |>
+  dplyr::arrange(correction_date)
+actual_manual_daily_offsets <- gc_manual_exclusion_result$daily_offsets |>
+  dplyr::arrange(correction_date)
+stopifnot(isTRUE(all.equal(
+  expected_manual_daily_offsets,
+  actual_manual_daily_offsets,
+  check.attributes = FALSE
+)))
+
+# Manual selectors can live in the experiment config instead of being passed
+# to process_gc() for each call.
+config_with_manual_exclusion <- config
+config_with_manual_exclusion$processing$gc$exclude_measurements <- list(
+  as.list(manual_exclusion[1, , drop = FALSE])
+)
+gc_config_exclusion_result <- process_gc(
+  raw_df = raw_gc,
+  config = config_with_manual_exclusion,
+  gc_methods = gc_methods_path,
+  method_name = gc_method_name,
+  external_standard_id = external_standard_id,
+  isotope = "C13",
+  verbose = FALSE
+)
+stopifnot(nrow(gc_config_exclusion_result$excluded_measurements) ==
+  nrow(manual_key_rows))
+stopifnot(all(gc_config_exclusion_result$excluded_measurements$exclusion_reason ==
+  "Markdown functionality check"))
+```
+
+## Check experiment-wide F8 compound exclusions
+
+An excluded standard compound is omitted from every F8 offset average. Its
+measurements remain in the processed data for review.
+
+```{r standard-compound-exclusion-check}
+observed_reference_compounds <- intersect(
+  manual_reference_compounds,
+  unique(as.character(gc_review$compound_id[
+    trimws(as.character(gc_review$sample_id)) == external_standard_id
+  ]))
+)
+observed_reference_compounds <- setdiff(
+  observed_reference_compounds,
+  as.character(config$gc_standards$external$exclude_compound_ids)
+)
+stopifnot(length(observed_reference_compounds) > 0)
+excluded_compound_id <- observed_reference_compounds[[1]]
+config_with_compound_exclusion <- config
+config_with_compound_exclusion$gc_standards$external$exclude_compound_ids <-
+  unique(c(
+    as.character(config$gc_standards$external$exclude_compound_ids),
+    excluded_compound_id
+  ))
+gc_compound_exclusion_result <- process_gc(
+  raw_df = raw_gc,
+  config = config_with_compound_exclusion,
+  gc_methods = gc_methods_path,
+  method_name = gc_method_name,
+  external_standard_id = external_standard_id,
+  isotope = "C13",
+  verbose = FALSE
+)
+stopifnot(excluded_compound_id %in%
+  gc_compound_exclusion_result$excluded_standard_compound_ids)
+stopifnot(any(as.character(gc_compound_exclusion_result$data$compound_id) ==
+  excluded_compound_id))
+excluded_compound_peak_count <- gc_review |>
+  dplyr::filter(
+    trimws(as.character(sample_id)) == external_standard_id,
+    as.character(compound_id) == excluded_compound_id,
+    as.character(compound_id) %in% manual_reference_compounds,
+    !is.na(injection_id),
+    !is.na(start_time),
+    is.finite(delta_value)
+  ) |>
+  nrow()
+stopifnot(
+  sum(gc_result$injection_offsets$n_compounds) -
+    sum(gc_compound_exclusion_result$injection_offsets$n_compounds) ==
+    excluded_compound_peak_count
+)
 ```
 
 ## Review compound assignment
@@ -88,5 +399,10 @@ gc_saved <- save_gc_results(
   prefix = config$file_name,
   verbose = TRUE
 )
+stopifnot(file.exists(gc_saved$data_file))
+stopifnot(file.exists(gc_saved$visualization_file))
+stopifnot(file.exists(gc_saved$excluded_measurements_file))
+stopifnot(file.exists(gc_saved$injection_offsets_file))
+stopifnot(file.exists(gc_saved$daily_offsets_file))
 gc_saved
 ```

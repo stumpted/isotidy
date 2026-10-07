@@ -613,7 +613,10 @@ correct_gc_external_standard <- function(
     date_column = "start_time",
     compound_column = "compound_id",
     delta_column = "delta_value",
-    verbose = TRUE
+    verbose = TRUE,
+    sample_id = standard_id,
+    exclude_injection_ids = NULL,
+    exclude_compound_ids = NULL
 ) {
   required_data <- c(
     "injection_id",
@@ -653,17 +656,80 @@ correct_gc_external_standard <- function(
     stop("'standard_id' must be one non-empty value.")
   }
 
+  if (
+    length(sample_id) != 1 ||
+    is.na(sample_id) ||
+    !nzchar(as.character(sample_id))
+  ) {
+    stop("'sample_id' must be one non-empty value.")
+  }
+  sample_id <- as.character(sample_id)
+
+  if (is.null(exclude_injection_ids)) {
+    exclude_injection_ids <- character(0)
+  }
+  exclude_injection_ids <- unique(trimws(as.character(
+    exclude_injection_ids
+  )))
+  exclude_injection_ids <- exclude_injection_ids[
+    !is.na(exclude_injection_ids) & nzchar(exclude_injection_ids)
+  ]
+  if (is.null(exclude_compound_ids)) {
+    exclude_compound_ids <- character(0)
+  }
+  exclude_compound_ids <- unique(trimws(as.character(
+    exclude_compound_ids
+  )))
+  exclude_compound_ids <- exclude_compound_ids[
+    !is.na(exclude_compound_ids) & nzchar(exclude_compound_ids)
+  ]
+
   data <- canonical_df
   data$correction_date <- as.Date(data[[date_column]])
 
   is_external <- !is.na(data$sample_id) &
-    trimws(as.character(data$sample_id)) == standard_id
+    trimws(as.character(data$sample_id)) == sample_id
 
   if (!any(is_external)) {
     stop(
-      "No GC injections found for external standard '",
-      standard_id,
+      "No GC injections found for external standard sample ID '",
+      sample_id,
       "'."
+    )
+  }
+
+  external_injection_ids <- unique(as.character(
+    data$injection_id[is_external]
+  ))
+  excluded_standard_ids_found <- intersect(
+    exclude_injection_ids,
+    external_injection_ids
+  )
+  excluded_standard_ids_missing <- setdiff(
+    exclude_injection_ids,
+    external_injection_ids
+  )
+  external_compound_ids <- unique(as.character(
+    trimws(as.character(data[[compound_column]][is_external]))
+  ))
+  excluded_standard_compounds_found <- intersect(
+    exclude_compound_ids,
+    external_compound_ids
+  )
+  excluded_standard_compounds_missing <- setdiff(
+    exclude_compound_ids,
+    external_compound_ids
+  )
+  if (length(excluded_standard_ids_missing) > 0) {
+    warning(
+      "Configured excluded external-standard injection ID(s) were not found: ",
+      paste(excluded_standard_ids_missing, collapse = ", ")
+    )
+  }
+  if (length(excluded_standard_compounds_missing) > 0) {
+    warning(
+      "Configured excluded external-standard compound ID(s) were not found: ",
+      paste(excluded_standard_compounds_missing, collapse = ", ")
     )
   }
 
@@ -693,7 +759,15 @@ correct_gc_external_standard <- function(
     )
   }
 
-  standard_measurements <- data[is_external, , drop = FALSE] |>
+  standard_rows <- is_external &
+    !as.character(data$injection_id) %in% excluded_standard_ids_found &
+    !trimws(as.character(data[[compound_column]])) %in%
+      excluded_standard_compounds_found
+  standard_measurements <- data[
+    standard_rows,
+    ,
+    drop = FALSE
+  ] |>
     dplyr::transmute(
       injection_id = .data$injection_id,
       correction_date = .data$correction_date,
@@ -778,18 +852,26 @@ correct_gc_external_standard <- function(
 
   if (verbose) {
     message(
-      "Applied external-standard correction from ",
+      "Applied external-standard correction using reference '",
       standard_id,
+      "' for sample ID '",
+      sample_id,
       " on ",
       nrow(daily_offsets),
-      " date(s)."
+      " date(s); excluded ", length(excluded_standard_ids_found),
+      " configured injection(s) from offset calculations."
     )
   }
 
   list(
     data = data,
     injection_offsets = injection_offsets,
-    daily_offsets = daily_offsets
+    daily_offsets = daily_offsets,
+    excluded_standard_injection_ids = excluded_standard_ids_found,
+    missing_excluded_standard_injection_ids = excluded_standard_ids_missing,
+    excluded_standard_compound_ids = excluded_standard_compounds_found,
+    missing_excluded_standard_compound_ids =
+      excluded_standard_compounds_missing
   )
 }
 

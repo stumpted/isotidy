@@ -12,6 +12,7 @@ params:
   data_file: NULL
   injection_offsets_file: NULL
   daily_offsets_file: NULL
+  excluded_measurements_file: NULL
 ---
 
 ```{r setup, include=FALSE}
@@ -52,8 +53,11 @@ knitr::kable(assignment_summary)
 ## External-standard offsets
 
 Offsets are estimated per standard injection by averaging matched compound
-offsets, then averaged across injections by date. The daily offset is applied
-to non-standard peaks measured on that date.
+offsets, then averaged without weighting across included injections by date.
+Manual analysis exclusions are applied before these averages. Standard
+injection IDs listed in the exclusion table below are omitted from offset
+calculations. The daily offset is applied to non-standard peaks measured on
+that date.
 
 ```{r injection-offsets}
 knitr::kable(result$injection_offsets)
@@ -61,6 +65,68 @@ knitr::kable(result$injection_offsets)
 
 ```{r daily-offsets}
 knitr::kable(result$daily_offsets)
+```
+
+## Exclusions
+
+Manual analysis or peak exclusions are listed here and are also saved to a
+separate CSV file. An exclusion with a peak number removes that peak within
+the selected analysis; an exclusion without one removes every peak from that
+analysis. These rows are omitted before external-standard correction.
+
+```{r manual-exclusions}
+excluded_measurements <- result$excluded_measurements
+if (is.null(excluded_measurements) || nrow(excluded_measurements) == 0) {
+  cat("No manual measurement exclusions were applied.\n")
+} else {
+  knitr::kable(excluded_measurements)
+}
+```
+
+The following external-standard injection IDs remain in the processed data
+for review but do not contribute to injection or daily offset averages.
+
+```{r standard-injection-exclusions}
+excluded_standard_ids <- result$excluded_standard_injection_ids
+if (is.null(excluded_standard_ids) || length(excluded_standard_ids) == 0) {
+  cat("No external-standard injections were excluded from offset calculations.\n")
+} else {
+  knitr::kable(data.frame(
+    excluded_standard_injection_id = excluded_standard_ids
+  ))
+}
+
+missing_standard_ids <- result$missing_excluded_standard_injection_ids
+if (!is.null(missing_standard_ids) && length(missing_standard_ids) > 0) {
+  cat("Configured excluded standard IDs not found in this run: ",
+      paste(missing_standard_ids, collapse = ", "), "\n", sep = "")
+}
+
+excluded_standard_compounds <- result$excluded_standard_compound_ids
+if (is.null(excluded_standard_compounds) ||
+    length(excluded_standard_compounds) == 0) {
+  cat("No standard compounds were excluded from offset calculations.\n")
+} else {
+  cat("Standard compounds excluded from all offset averages:\n")
+  knitr::kable(data.frame(
+    excluded_standard_compound_id = excluded_standard_compounds
+  ))
+  cat("These compound measurements remain in the processed data.\n")
+}
+
+missing_standard_compounds <- result$missing_excluded_standard_compound_ids
+if (!is.null(missing_standard_compounds) &&
+    length(missing_standard_compounds) > 0) {
+  cat("Configured excluded compound IDs not found in F8 measurements: ",
+      paste(missing_standard_compounds, collapse = ", "), "\n", sep = "")
+}
+
+unmatched_manual_exclusions <- result$unmatched_measurement_exclusions
+if (!is.null(unmatched_manual_exclusions) &&
+    nrow(unmatched_manual_exclusions) > 0) {
+  cat("Manual exclusion selectors that did not match any measurements:\n")
+  knitr::kable(unmatched_manual_exclusions)
+}
 ```
 
 ## Final corrected peak data

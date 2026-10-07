@@ -260,6 +260,74 @@ load_IRMS_config <- function(
     )
   }
 
+  gc_standards <- config$standards$gc
+
+  if (!is.null(gc_standards)) {
+    if (!is.list(gc_standards)) {
+      stop("standards$gc must be a mapping.")
+    }
+
+    external_role <- gc_standards$external
+    if (!is.null(external_role)) {
+      if (!is.list(external_role)) {
+        stop("standards$gc$external must be a mapping.")
+      }
+
+      sample_id <- external_role$sample_id
+      reference_id <- external_role$reference_id %||% sample_id
+
+      if (
+        length(sample_id) != 1 || is.na(sample_id) || !nzchar(sample_id)
+      ) {
+        stop("standards$gc$external$sample_id must be one non-empty value.")
+      }
+
+      if (
+        length(reference_id) != 1 || is.na(reference_id) ||
+        !nzchar(reference_id)
+      ) {
+        stop("standards$gc$external$reference_id must be one non-empty value.")
+      }
+
+      if (!as.character(reference_id) %in% stds_reference_df$standard_id) {
+        stop(
+          "GC external reference ID not found in laboratory standards: ",
+          reference_id
+        )
+      }
+    }
+
+    internal_role <- gc_standards$internal
+    if (!is.null(internal_role)) {
+      if (!is.list(internal_role)) {
+        stop("standards$gc$internal must be a mapping or null.")
+      }
+
+      compound_id <- internal_role$compound_id
+      reference_id <- internal_role$reference_id %||% compound_id
+
+      if (
+        length(compound_id) != 1 || is.na(compound_id) ||
+        !nzchar(compound_id)
+      ) {
+        stop("standards$gc$internal$compound_id must be one non-empty value.")
+      }
+
+      if (
+        length(reference_id) != 1 || is.na(reference_id) ||
+        !nzchar(reference_id)
+      ) {
+        stop("standards$gc$internal$reference_id must be one non-empty value.")
+      }
+
+      if (!as.character(reference_id) %in% stds_reference_df$standard_id) {
+        stop(
+          "GC internal reference ID not found in laboratory standards: ",
+          reference_id
+        )
+      }
+    }
+  }
   # Build the irms_config object
   result <- list(
     experiment_name = experiment_name,
@@ -269,6 +337,7 @@ load_IRMS_config <- function(
     stds_data_path = stds_data_path,
     stds_used = stds_used,
     calibration_standards = calibration_standards,
+    gc_standards = gc_standards,
     processing = config$processing,
     stds_reference_df = stds_reference_df,
     yaml_file_path = yaml_file_path

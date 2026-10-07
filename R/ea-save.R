@@ -2,8 +2,9 @@
 
 #' Save processed EA results and a human-readable HTML processing report
 #'
-#' Saves the final processed EA data as a CSV and renders the permanent
-#' EA processing-summary R Markdown template as an HTML report.
+#' Saves the final processed EA data and, when present, the replicate-averaged
+#' visualization data as CSV files. It also renders the permanent EA
+#' processing-summary R Markdown template as an HTML report.
 #'
 #' @param result Result returned by process_ea().
 #' @param config Experiment configuration used for processing.
@@ -11,7 +12,8 @@
 #' @param prefix Optional filename prefix. Defaults to the experiment name.
 #' @param verbose Print progress messages.
 #'
-#' @return A list containing paths to the data and HTML report.
+#' @return A list containing paths to the data, optional visualization CSV,
+#'   and HTML report.
 #' @export
 save_ea_results <- function(
     result,
@@ -71,6 +73,14 @@ save_ea_results <- function(
     paste0(prefix, "_processed.csv")
   )
 
+  visualization_file <- NULL
+  if (!is.null(result$visualization_data)) {
+    visualization_file <- file.path(
+      output_dir,
+      paste0(prefix, "_visualization.csv")
+    )
+  }
+
   report_file <- file.path(
     output_dir,
     paste0(prefix, "_processing_summary.html")
@@ -85,6 +95,14 @@ save_ea_results <- function(
     file = data_file,
     row.names = FALSE
   )
+
+  if (!is.null(visualization_file)) {
+    utils::write.csv(
+      result$visualization_data,
+      file = visualization_file,
+      row.names = FALSE
+    )
+  }
 
   if (verbose) {
     cat(
@@ -165,6 +183,11 @@ save_ea_results <- function(
         winslash = "/",
         mustWork = FALSE
       ),
+      visualization_file = if (is.null(visualization_file)) {
+        NULL
+      } else {
+        normalizePath(visualization_file, winslash = "/", mustWork = FALSE)
+      },
       report_file = normalizePath(
         report_file,
         winslash = "/",

@@ -2,8 +2,9 @@
 
 #' Save processed GC results and a processing summary
 #'
-#' Writes final corrected GC peak data, injection-level and daily external
-#' standard offsets, and an HTML processing summary.
+#' Writes final corrected GC peak data, optional replicate-averaged
+#' visualization data, excluded measurements, injection-level and daily
+#' external-standard offsets, and an HTML processing summary.
 #'
 #' @param result Result returned by process_gc().
 #' @param config Experiment configuration used for processing.
@@ -11,7 +12,8 @@
 #' @param prefix Optional filename prefix. Defaults to config$file_name.
 #' @param verbose Print progress messages.
 #'
-#' @return A list of paths to the output files.
+#' @return A list of paths to the output files, including the optional
+#'   visualization CSV.
 #' @export
 save_gc_results <- function(
     result,
@@ -52,6 +54,13 @@ save_gc_results <- function(
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
   data_file <- file.path(output_dir, paste0(prefix, "_gc_processed.csv"))
+  visualization_file <- NULL
+  if (!is.null(result$visualization_data)) {
+    visualization_file <- file.path(
+      output_dir,
+      paste0(prefix, "_gc_visualization.csv")
+    )
+  }
   injection_offsets_file <- file.path(
     output_dir,
     paste0(prefix, "_gc_injection_offsets.csv")
@@ -60,14 +69,31 @@ save_gc_results <- function(
     output_dir,
     paste0(prefix, "_gc_daily_offsets.csv")
   )
+  excluded_measurements_file <- NULL
+  if (!is.null(result$excluded_measurements)) {
+    excluded_measurements_file <- file.path(
+      output_dir,
+      paste0(prefix, "_gc_excluded_measurements.csv")
+    )
+  }
   report_file <- file.path(
     output_dir,
     paste0(prefix, "_gc_processing_summary.html")
   )
 
   utils::write.csv(result$output, data_file, row.names = FALSE)
+  if (!is.null(visualization_file)) {
+    utils::write.csv(result$visualization_data, visualization_file, row.names = FALSE)
+  }
   utils::write.csv(result$injection_offsets, injection_offsets_file, row.names = FALSE)
   utils::write.csv(result$daily_offsets, daily_offsets_file, row.names = FALSE)
+  if (!is.null(excluded_measurements_file)) {
+    utils::write.csv(
+      result$excluded_measurements,
+      excluded_measurements_file,
+      row.names = FALSE
+    )
+  }
 
   if (!requireNamespace("rmarkdown", quietly = TRUE)) {
     stop(
@@ -109,7 +135,8 @@ save_gc_results <- function(
       config = config,
       data_file = data_file,
       injection_offsets_file = injection_offsets_file,
-      daily_offsets_file = daily_offsets_file
+      daily_offsets_file = daily_offsets_file,
+      excluded_measurements_file = excluded_measurements_file
     ),
     envir = new.env(parent = globalenv()),
     quiet = !verbose
@@ -121,6 +148,11 @@ save_gc_results <- function(
 
   invisible(list(
     data_file = normalizePath(data_file, winslash = "/", mustWork = FALSE),
+    visualization_file = if (is.null(visualization_file)) {
+      NULL
+    } else {
+      normalizePath(visualization_file, winslash = "/", mustWork = FALSE)
+    },
     injection_offsets_file = normalizePath(
       injection_offsets_file,
       winslash = "/",
@@ -131,6 +163,15 @@ save_gc_results <- function(
       winslash = "/",
       mustWork = FALSE
     ),
+    excluded_measurements_file = if (is.null(excluded_measurements_file)) {
+      NULL
+    } else {
+      normalizePath(
+        excluded_measurements_file,
+        winslash = "/",
+        mustWork = FALSE
+      )
+    },
     report_file = normalizePath(report_file, winslash = "/", mustWork = FALSE)
   ))
 }
