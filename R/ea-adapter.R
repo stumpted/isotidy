@@ -107,26 +107,26 @@ adapt_ea_data <- function(
 
     template <- stringr::str_replace_all(
       template,
-      fixed("{element}"),
+      stringr::fixed("{element}"),
       element
     )
 
     template <- stringr::str_replace_all(
       template,
-      fixed("{isotope_mass}"),
+      stringr::fixed("{isotope_mass}"),
       as.character(isotope_mass)
     )
 
     template <- stringr::str_replace_all(
       template,
-      fixed("{reference_isotope_mass}"),
+      stringr::fixed("{reference_isotope_mass}"),
       as.character(reference_isotope_mass)
     )
 
     if (!is.null(mass)) {
       template <- stringr::str_replace_all(
         template,
-        fixed("{mass}"),
+        stringr::fixed("{mass}"),
         as.character(mass)
       )
     }
@@ -707,3 +707,4 @@ validate_ea_canonical_data <- function(
 
   invisible(TRUE)
 }
+

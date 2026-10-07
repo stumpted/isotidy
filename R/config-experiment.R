@@ -536,6 +536,77 @@ validate_config <- function(
   invisible(TRUE)
 }
 
+# Resolve isotope metadata shared by peripheral adapters.
+get_isotope_system <- function(isotope, config = NULL) {
+
+  if (
+    length(isotope) != 1 ||
+    is.na(isotope) ||
+    !nzchar(as.character(isotope))
+  ) {
+    stop("'isotope' must contain exactly one non-empty value.")
+  }
+
+  isotope <- as.character(isotope)
+  isotope_path <- system.file(
+    "config",
+    "isotope_systems.yml",
+    package = "isotidy"
+  )
+
+  if (isotope_path == "") {
+    isotope_path <- file.path(
+      "inst",
+      "config",
+      "isotope_systems.yml"
+    )
+  }
+
+  if (!file.exists(isotope_path)) {
+    stop("Isotope systems file not found: ", isotope_path)
+  }
+
+  isotope_config <- yaml::read_yaml(isotope_path)$isotope_systems
+  isotope_system <- isotope_config[[isotope]]
+
+  if (is.null(isotope_system)) {
+    stop("Unknown isotope system: ", isotope)
+  }
+
+  isotope_mass <- isotope_system$isotope_mass
+  if (is.null(isotope_mass)) {
+    mass_text <- gsub("[^0-9]", "", isotope)
+    if (nzchar(mass_text)) {
+      isotope_mass <- as.numeric(mass_text)
+    }
+  }
+
+  reference_isotope_mass <- isotope_system$reference_isotope_mass
+  if (is.null(reference_isotope_mass) && !is.null(isotope_system$ratio)) {
+    denominator <- sub(
+      "^.*/([0-9]+)[A-Za-z]*$",
+      "\\1",
+      as.character(isotope_system$ratio)
+    )
+    if (!identical(denominator, as.character(isotope_system$ratio))) {
+      reference_isotope_mass <- as.numeric(denominator)
+    }
+  }
+
+  element <- isotope_system$element
+  if (is.null(element) && !is.null(config)) {
+    element <- get_config_element(config)
+  }
+
+  list(
+    name = isotope_system$name,
+    element = element,
+    isotope_mass = as.numeric(isotope_mass),
+    reference_isotope_mass = as.numeric(reference_isotope_mass),
+    reference_mass = isotope_system$reference_mass
+  )
+}
+
 #' Get the element specified in the EA experiment configuration
 #'
 #' @param config Experiment configuration loaded from YAML.
@@ -581,3 +652,4 @@ get_config_element <- function(config) {
 
   element
 }
+

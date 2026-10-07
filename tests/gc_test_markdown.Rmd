@@ -1,89 +1,92 @@
 ---
-title: "test_markdown"
+title: "GC processing test"
 output: html_document
-date: "2026-10-04"
+date: "2026-10-06"
 ---
 
-```{r load config}
-
-config_path <- file.path(
-  "..",
-  "data",
-  "202609_tp_FAMES_GC-IRMS",
-  "tp1-1_raw",
-  "analyzed_data",
-  "experiment_config.yaml"
+```{r setup}
+experiment_config_relative <- file.path(
+  "data", "202609_tp_FAMES_GC-IRMS", "tp1-1_raw",
+  "analyzed_data", "experiment_config.yaml"
 )
+project_root_candidates <- c(".", "..", "../..", "../../..")
+project_root_matches <- project_root_candidates[vapply(
+  project_root_candidates,
+  function(root) file.exists(file.path(root, experiment_config_relative)),
+  logical(1)
+)]
 
-lab_config_dir <- file.path(
-  "..",
-  "..",
-  "sessions_lab_isotidy_config"
+if (length(project_root_matches) == 0) {
+  stop("Could not locate the FAMES experiment config from the current directory.")
+}
+
+project_root <- project_root_matches[[1]]
+config_path <- file.path(project_root, experiment_config_relative)
+lab_config_dir <- file.path(project_root, "..", "sessions_lab_isotidy_config")
+gc_methods_path <- normalizePath(
+  file.path(lab_config_dir, "gc_methods.yml"),
+  winslash = "/",
+  mustWork = TRUE
 )
 
 config <- load_IRMS_config(config_path, lab_config_dir)
-
 raw_data_path <- file.path(
-  "..",
-  config$raw_data_dir,
-  paste0(config$file_name, ".xlsx")
+  project_root, config$raw_data_dir, paste0(config$file_name, ".xlsx")
 )
-
-raw_gc <- import_gc_data(
-  raw_data_path
-)
-
-schema_path <- file.path(
-  "inst",
-  "config",
-  "peripheral_schemas.yml"
-)
-
-schemas <- load_peripheral_schemas(schema_path)
-
-schema <- get_peripheral_schema(
-  schemas = schemas,
-  peripheral = "EA"
-)
-
-stds_reference_df <- config$stds_reference_df
-
-```
-```{r test adapter}
-
-gc_data <- adapt_gc_data(
-  raw_gc,
-  isotope = "C13"
-)
-
+raw_gc <- import_gc_data(raw_data_path)
+gc_method_name <- "YP_CO2_F8_27m"
+external_standard_id <- "F8"
 ```
 
+## Process GC peaks through external-standard correction
 
-```{r test result}
-
-result <- process_ea(
-  raw_df = raw_ea,
+```{r process-gc}
+gc_result <- process_gc(
+  raw_df = raw_gc,
   config = config,
-  schema = schema,
-  stds_reference_df = stds_reference_df,
+  gc_methods = gc_methods_path,
+  method_name = gc_method_name,
+  external_standard_id = external_standard_id,
   isotope = "C13",
-  run_id = config$file_name,
-  instrument = "EA",
-  apply_mass = TRUE,
-  apply_linearity = FALSE,
   verbose = TRUE
 )
 
+gc_result$daily_offsets
 ```
 
-```{r save result}
+## Review compound assignment
 
-saved <- save_ea_results(
-  result = result,
+Unmatched and ambiguous peaks remain unassigned for review.
+
+```{r compound-assignment-summary}
+gc_assignment_summary <- gc_result$data |>
+  dplyr::count(compound_match_status, compound_id, name = "n_peaks")
+gc_assignment_summary
+```
+
+```{r f8-assignments}
+f8_assignments <- gc_result$data |>
+  dplyr::filter(sample_id == external_standard_id) |>
+  dplyr::count(injection_id, compound_id, compound_match_status,
+               name = "n_peaks") |>
+  dplyr::arrange(injection_id, compound_id)
+f8_assignments
+```
+
+## Save the corrected GC data product
+
+The final output contains raw and externally corrected delta values, compound
+assignment status, retention times, peak areas, and injection metadata.
+Separate CSV files retain injection-level and daily offsets, and an HTML report
+summarizes the processing.
+
+```{r save-gc}
+gc_saved <- save_gc_results(
+  result = gc_result,
   config = config,
-  output_dir = "../data/202605_prelim_EA_experiment/analyzed_data"
+  output_dir = file.path(project_root, config$output_dir),
+  prefix = config$file_name,
+  verbose = TRUE
 )
-
+gc_saved
 ```
-
-

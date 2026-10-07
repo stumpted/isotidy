@@ -1,6 +1,6 @@
 # R/ layout
 
-Updated 2026-10-04
+Updated 2026-10-06
 
 One file per topic. Files are named `<area>-<topic>.R`, and the prefix groups them in directory listings (R packages require a flat `R/` folder, so there are no subfolders).
 
@@ -11,7 +11,7 @@ One file per topic. Files are named `<area>-<topic>.R`, and the prefix groups th
 | File | Functions |
 |---|---|
 | `config-schema.R` | `load_peripheral_schemas`, `get_peripheral_schema`, `validate_peripheral_schemas`, `validate_peripheral_schema` |
-| `config-experiment.R` | `load_IRMS_config`, `validate_config`, `create_config_template`, `get_config_element` |
+| `config-experiment.R` | `load_IRMS_config`, `validate_config`, `create_config_template`, `get_config_element`, `get_isotope_system` |
 | `normalize.R` | `normalize_data` (generic entry point: raw data to canonical format via an adapter function) |
 
 ### Processing stages (peripheral-agnostic)
@@ -33,6 +33,16 @@ One file per topic. Files are named `<area>-<topic>.R`, and the prefix groups th
 | `ea-adapter.R` | `adapt_ea_data` and its helpers: `validate_ea_raw_data`, `apply_ea_validation_rules`, `add_ea_specific_columns`, `validate_ea_canonical_data` |
 | `ea-pipeline.R` | `process_ea` |
 | `ea-save.R` | `save_ea_results` |
+
+### GC-IRMS (peripheral-specific)
+
+| File | Functions |
+|---|---|
+| `gc-adapter.R` | `adapt_gc_data`, GC method-based peak assignment, external-standard correction |
+| `gc-pipeline.R` | `process_gc`: adapt, assign compounds, and apply date-specific external-standard offsets |
+| `gc-save.R` | `save_gc_results`: corrected peak CSV, offset CSVs, and HTML report |
+
+The GC workflow currently ends after external-standard correction. It does not apply derivatization or internal-standard corrections.
 
 ### Package-level
 

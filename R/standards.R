@@ -40,12 +40,21 @@ normalize_yaml_standards <- function(records) {
       compound_ids <- names(values)
     }
 
-    if (length(compound_ids) != length(values) ||
+    scalar_standard <-
+      length(compound_ids) == 1 &&
+      length(values) == 1 &&
+      is.na(compound_ids[[1]])
+
+    invalid_compound_ids <-
+      length(compound_ids) != length(values) ||
+      (!scalar_standard && (
         anyNA(compound_ids) ||
-        anyDuplicated(compound_ids)) {
+        anyDuplicated(compound_ids)
+      ))
+
+    if (invalid_compound_ids) {
       stop("Compound IDs for standard '", record_name, "' must be unique.")
     }
-
     if (any(!is.na(compound_ids) & !nzchar(compound_ids))) {
       stop("Compound IDs for standard '", record_name, "' cannot be empty.")
     }
@@ -377,3 +386,4 @@ extract_standards <- function(df, stds_reference_df, config = NULL, verbose = TR
 
   return(stds_df)
 }
+

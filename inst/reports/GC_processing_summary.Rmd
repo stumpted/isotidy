@@ -1,0 +1,73 @@
+---
+title: "GC-IRMS Processing Summary"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: readable
+    self_contained: true
+params:
+  result: NULL
+  config: NULL
+  data_file: NULL
+  injection_offsets_file: NULL
+  daily_offsets_file: NULL
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+result <- params$result
+config <- params$config
+```
+
+# Processing summary
+
+This report summarizes GC peak assignment and date-specific external-standard
+correction. It does not apply derivatization or internal-standard corrections.
+
+## Experiment
+
+```{r experiment}
+info <- data.frame(
+  Field = c("Experiment", "File", "Method", "Isotope", "External standard"),
+  Value = c(
+    config$experiment_name,
+    config$file_name,
+    result$method_name,
+    result$isotope,
+    result$external_standard_id
+  )
+)
+knitr::kable(info)
+```
+
+## Compound assignments
+
+```{r assignments}
+assignment_summary <- result$data |>
+  dplyr::count(compound_match_status, compound_id, name = "n_peaks")
+knitr::kable(assignment_summary)
+```
+
+## External-standard offsets
+
+Offsets are estimated per standard injection by averaging matched compound
+offsets, then averaged across injections by date. The daily offset is applied
+to non-standard peaks measured on that date.
+
+```{r injection-offsets}
+knitr::kable(result$injection_offsets)
+```
+
+```{r daily-offsets}
+knitr::kable(result$daily_offsets)
+```
+
+## Final corrected peak data
+
+The CSV contains the raw and corrected isotope values, compound-assignment
+status, retention time, peak area, and injection metadata.
+
+```{r output-preview}
+knitr::kable(utils::head(result$output, 20))
+```
