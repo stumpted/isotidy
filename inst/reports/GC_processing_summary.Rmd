@@ -24,17 +24,23 @@ config <- params$config
 # Processing summary
 
 This report summarizes GC peak assignment and date-specific external-standard
-correction. It does not apply derivatization or internal-standard corrections.
+correction and, when configured, date-specific NACME derivatization correction.
 
 ## Experiment
 
 ```{r experiment}
+methods <- unique(stats::na.omit(as.character(result$method_name)))
+method_label <- if (length(methods) == 0) {
+  NA_character_
+} else {
+  paste(methods, collapse = ", ")
+}
 info <- data.frame(
   Field = c("Experiment", "File", "Method", "Isotope", "External standard"),
   Value = c(
     config$experiment_name,
     config$file_name,
-    result$method_name,
+    method_label,
     result$isotope,
     result$external_standard_id
   )
