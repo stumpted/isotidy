@@ -4,7 +4,8 @@
 #'
 #' Writes final corrected GC peak data, optional replicate-averaged
 #' visualization data, excluded measurements, injection-level and daily
-#' external-standard offsets, and an HTML processing summary.
+#' external-standard offsets, optional NACME estimates, and an HTML processing
+#' summary.
 #'
 #' @param result Result returned by process_gc().
 #' @param config Experiment configuration used for processing.
@@ -69,6 +70,16 @@ save_gc_results <- function(
     output_dir,
     paste0(prefix, "_gc_daily_offsets.csv")
   )
+  derivatization_estimates_file <- NULL
+  if (
+    is.data.frame(result$derivatization_estimates) &&
+    nrow(result$derivatization_estimates) > 0
+  ) {
+    derivatization_estimates_file <- file.path(
+      output_dir,
+      paste0(prefix, "_gc_nacme_estimates.csv")
+    )
+  }
   excluded_measurements_file <- NULL
   if (!is.null(result$excluded_measurements)) {
     excluded_measurements_file <- file.path(
@@ -87,6 +98,13 @@ save_gc_results <- function(
   }
   utils::write.csv(result$injection_offsets, injection_offsets_file, row.names = FALSE)
   utils::write.csv(result$daily_offsets, daily_offsets_file, row.names = FALSE)
+  if (!is.null(derivatization_estimates_file)) {
+    utils::write.csv(
+      result$derivatization_estimates,
+      derivatization_estimates_file,
+      row.names = FALSE
+    )
+  }
   if (!is.null(excluded_measurements_file)) {
     utils::write.csv(
       result$excluded_measurements,
@@ -102,21 +120,19 @@ save_gc_results <- function(
     )
   }
 
-  template <- system.file(
+  development_template <- file.path(
+    "inst",
     "reports",
-    "GC_processing_summary.Rmd",
-    package = "isotidy"
+    "GC_processing_summary.Rmd"
   )
-
-  if (!nzchar(template)) {
-    development_template <- file.path(
-      "inst",
+  template <- if (file.exists(development_template)) {
+    normalizePath(development_template, winslash = "/", mustWork = TRUE)
+  } else {
+    system.file(
       "reports",
-      "GC_processing_summary.Rmd"
+      "GC_processing_summary.Rmd",
+      package = "isotidy"
     )
-    if (file.exists(development_template)) {
-      template <- development_template
-    }
   }
 
   if (!nzchar(template) || !file.exists(template)) {
@@ -163,6 +179,17 @@ save_gc_results <- function(
       winslash = "/",
       mustWork = FALSE
     ),
+    derivatization_estimates_file = if (
+      is.null(derivatization_estimates_file)
+    ) {
+      NULL
+    } else {
+      normalizePath(
+        derivatization_estimates_file,
+        winslash = "/",
+        mustWork = FALSE
+      )
+    },
     excluded_measurements_file = if (is.null(excluded_measurements_file)) {
       NULL
     } else {

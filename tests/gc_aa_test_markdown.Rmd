@@ -1,0 +1,243 @@
+---
+title: "GC processing test for NACME derivatized amino acids"
+output: html_document
+date: "2026-10-07"
+---
+
+```{r setup}
+experiment_config_relative <- file.path(
+  "data", "202609_tp_AAs_GC-IRMS", "experiment_config.yaml"
+)
+project_root_candidates <- c(".", "..", "../..", "../../..")
+project_root_matches <- project_root_candidates[vapply(
+  project_root_candidates,
+  function(root) file.exists(file.path(root, experiment_config_relative)),
+  logical(1)
+)]
+
+if (length(project_root_matches) == 0) {
+  stop("Could not locate the AA experiment config from the current directory.")
+}
+
+project_root <- project_root_matches[[1]]
+config_path <- file.path(project_root, experiment_config_relative)
+lab_config_dir <- file.path(project_root, "..", "sessions_lab_isotidy_config")
+gc_methods_path <- normalizePath(
+  file.path(lab_config_dir, "gc_methods.yml"),
+  winslash = "/",
+  mustWork = TRUE
+)
+fixture_root_candidates <- c(".", "..", "../..", "../../..")
+fixture_root_matches <- fixture_root_candidates[vapply(
+  fixture_root_candidates,
+  function(root) file.exists(file.path(
+    root, "tests", "fixtures", "DeltaCalculations_example.xlsx"
+  )),
+  logical(1)
+)]
+if (length(fixture_root_matches) == 0) {
+  stop("Could not locate the synthetic derivatization reference workbook.")
+}
+synthetic_reference_path <- normalizePath(
+  file.path(fixture_root_matches[[1]], "tests", "fixtures", "DeltaCalculations_example.xlsx"),
+  winslash = "/",
+  mustWork = TRUE
+)
+
+config <- load_IRMS_config(config_path, lab_config_dir)
+raw_gc <- load_gc_data(config)
+external_standard_id <- "F8"
+aa_mix_sample_id <- "AA" # Override if the AA mix uses another export label.
+
+# Imported rows should be unique across all instrument fields, even when an
+# observation was present in more than one overlapping export.
+stopifnot("source_file" %in% names(raw_gc))
+stopifnot(nrow(raw_gc) > 0)
+imported_source_files <- unique(unlist(strsplit(
+  raw_gc$source_file,
+  "; ",
+  fixed = TRUE
+)))
+gc_yaml <- yaml::read_yaml(config_path)$gc
+gc_selected_input_set <- gc_yaml$input_sets[[gc_yaml$selected_input_set]]
+stopifnot(all(grepl(
+  gc_selected_input_set$file_pattern,
+  unique(raw_gc$source_file),
+  ignore.case = TRUE
+)))
+gc_observation_fields <- setdiff(names(raw_gc), "source_file")
+stopifnot(!anyDuplicated(raw_gc[, gc_observation_fields, drop = FALSE]))
+stopifnot(all(!is.na(raw_gc$source_file) & nzchar(raw_gc$source_file)))
+```
+
+## Assign each injection with its recorded GC method
+
+The adapter uses the `ConFlo Method` value on each injection, so F8 runs use
+`YP_CO2_F8_27m` and amino-acid runs use `YP_C_AA_59m`. Do not force one method
+for the entire mixed input set.
+
+## Process GC peaks through external-standard and NACME correction
+
+```{r process-gc}
+gc_result <- process_gc(
+  raw_df = raw_gc,
+  config = config,
+  gc_methods = gc_methods_path,
+  external_standard_id = external_standard_id,
+  derivatization_sample_id = aa_mix_sample_id,
+  isotope = "C13",
+  verbose = TRUE
+)
+
+gc_result$daily_offsets
+stopifnot(is.data.frame(gc_result$visualization_data))
+stopifnot("delta_value_final_mean" %in% names(gc_result$visualization_data))
+stopifnot("delta_value_final_sd" %in% names(gc_result$visualization_data))
+stopifnot(nrow(gc_result$derivatization_estimates) > 0)
+stopifnot(!any(gc_result$output$is_derivatization_standard))
+gc_result$derivatization_estimates
+```
+
+## Review compound assignment
+
+Unmatched and ambiguous peaks remain unassigned for review.
+
+```{r compound-assignment-summary}
+gc_assignment_summary <- gc_result$data |>
+  dplyr::count(compound_match_status, compound_id, name = "n_peaks")
+gc_assignment_summary
+```
+
+```{r f8-assignments}
+f8_assignments <- gc_result$data |>
+  dplyr::filter(sample_id == external_standard_id) |>
+  dplyr::count(injection_id, compound_id, compound_match_status,
+               name = "n_peaks") |>
+  dplyr::arrange(injection_id, compound_id)
+f8_assignments
+```
+
+## Save corrected GC data
+
+The processed data retain the raw, externally corrected, and NACME-corrected
+values. AA mix injections are used to estimate the correction but are omitted
+from final sample output. Separate CSV files retain external offsets and the
+date/compound NACME estimates.
+
+```{r save-gc}
+gc_saved <- save_gc_results(
+  result = gc_result,
+  config = config,
+  output_dir = file.path(project_root, config$output_dir),
+  prefix = config$file_name,
+  verbose = TRUE
+)
+stopifnot(file.exists(gc_saved$data_file))
+stopifnot(file.exists(gc_saved$visualization_file))
+stopifnot(file.exists(gc_saved$excluded_measurements_file))
+stopifnot(file.exists(gc_saved$injection_offsets_file))
+stopifnot(file.exists(gc_saved$daily_offsets_file))
+stopifnot(file.exists(gc_saved$derivatization_estimates_file))
+gc_saved
+```
+
+## NACME correction target
+
+The correction starts from F8 externally corrected values. For each compound and
+calendar date, use the configured AA mix standard injections (the standard is
+listed as `AA` in the standards configuration; the synthetic workbook labels its
+runs `STD`) to calculate the mean derivative value and its injection-to-injection
+standard deviation. Calendar date is the current proxy for derivatization batch.
+
+For each compound, let `C_AA` and `C_NACME` come from the `AA_mix` standard
+metadata and `C_total = C_AA + C_NACME`. Estimate the empirical NACME term from
+the known EA-IRMS value and the same-date AA mix mean:
+
+$$
+\delta_{NACME} =
+\frac{C_{total}\bar{\delta}_{STD} - C_{AA}\delta_{known}}
+     {C_{NACME}}.
+$$
+
+Propagate the STD-injection SD and known-value uncertainty using the benchmark convention:
+
+$$
+\sigma_{NACME} = 
+\sqrt{
+  \left(\frac{C_{total}}{C_{NACME}}\sigma_{STD}\right)^2 +
+  \left(\frac{C_{AA}}{C_{NACME}}\sigma_{known}\right)^2
+}
+$$
+
+For a sample peak with a same-date estimate, calculate:
+
+$$
+\delta_{AA,corr} =
+\frac{C_{total}\delta_{sample} - C_{NACME}\delta_{NACME}}
+     {C_{AA}}.
+$$
+
+Carry the empirical NACME estimate and its uncertainty as diagnostics; the
+estimate absorbs differences between the known AA value and measured standard,
+so it is not necessarily a physically interpretable reagent value. Preserve the
+reference convention for uncertainty: use the SD of STD injections (not the SE
+of their mean), combined with the known-value uncertainty. Exclude AA mix runs
+from corrected sample output, leave corrections missing when no same-date
+compound estimate exists, and leave unmatched or ambiguous peaks unassigned for
+review. Resolve the AA mix sample label from the actual exports rather than
+assuming it is literally named `STD`.
+
+## Synthetic derivatization reference workbook
+
+`DeltaCalculations_example.xlsx` is checked in as a small synthetic benchmark. It
+contains the original wide-format measurements and the labmate's intermediate
+and corrected tables. It is a reference for checking calculations, not an
+instrument export to pass to `process_gc()`.
+
+The `stdInfo` sheet provides per-date, per-compound STD means and the empirical
+NACME estimates. The benchmark groups by calendar date, treating same-day standards and samples as sharing a derivatization batch. The `derivCorr` sheet contains the sample values after the
+NACME correction. Use these stages as numerical regression references. The
+workbook's `isCorr` sheet applies a separate
+NorLeu internal-standard adjustment; exclude that step when validating the
+F8 external and NACME derivatization corrections alone. The reference workbook
+uses more precise known AA values than the current two-decimal standards YAML,
+so numerical comparisons
+must use the same source precision or an explicit rounding tolerance.
+
+```{r synthetic-reference-check}
+synthetic_std_reference <- readxl::read_excel(
+  synthetic_reference_path,
+  sheet = "stdInfo"
+)
+synthetic_ala <- synthetic_std_reference |>
+  dplyr::filter(as.character(Date) == "260512", compound == "Ala")
+stopifnot(nrow(synthetic_ala) == 1)
+stopifnot(synthetic_ala$Comp_C[[1]] == 3)
+stopifnot(synthetic_ala$Deriv_C[[1]] == 3)
+stopifnot(synthetic_ala$Tot_C[[1]] == 6)
+stopifnot(isTRUE(all.equal(
+  synthetic_ala$`δreagent`[[1]],
+  (synthetic_ala$Tot_C[[1]] * synthetic_ala$`δderivatized`[[1]] -
+    synthetic_ala$Comp_C[[1]] * synthetic_ala$`δknown`[[1]]) /
+    synthetic_ala$Deriv_C[[1]],
+  tolerance = 1e-10
+)))
+
+# Known corrected Ala result used by the testthat regression fixture.
+synthetic_deriv_reference <- readxl::read_excel(
+  synthetic_reference_path,
+  sheet = "derivCorr",
+  col_names = FALSE
+)
+stopifnot(isTRUE(all.equal(
+  as.numeric(synthetic_deriv_reference[[2]][[4]]),
+  -27.3562998144931,
+  tolerance = 1e-10
+)))
+synthetic_ala
+```
+
+The testthat fixture compares the implementation against the benchmark's
+external-correction and derivatization-correction stages. The AA mix label is
+configurable because an export may label those injections differently from the
+reference standard ID.

@@ -39,10 +39,11 @@ One file per topic. Files are named `<area>-<topic>.R`, and the prefix groups th
 | File | Functions |
 |---|---|
 | `gc-adapter.R` | `adapt_gc_data`, GC method-based peak assignment, external-standard correction |
-| `gc-pipeline.R` | `process_gc`: adapt, assign compounds, and apply date-specific external-standard offsets |
-| `gc-save.R` | `save_gc_results`: corrected peak CSV, offset CSVs, and HTML report |
+| `gc-derivatization.R` | Estimate date- and compound-specific NACME values from AA mix runs and correct sample peaks |
+| `gc-pipeline.R` | `process_gc`: adapt, assign compounds, apply F8 offsets, and apply NACME correction when carbon-count metadata is available |
+| `gc-save.R` | `save_gc_results`: corrected peak CSV, offset/derivatization diagnostics, and HTML report |
 
-The GC workflow currently ends after external-standard correction. It does not apply derivatization or internal-standard corrections.
+The GC workflow can now apply F8 external-standard correction followed by the empirical NACME derivatization correction. It does not apply a NorLeu internal-standard correction.
 
 ### Package-level
 

@@ -1,17 +1,21 @@
 # GC-IRMS pipeline: adapt peaks, assign compounds, and apply external standard corrections.
 
-#' Process GC-IRMS data through external-standard correction
+#' Process GC-IRMS data through external-standard and derivatization correction
 #'
 #' Converts raw GC-IRMS peak data to canonical form, assigns compounds from
-#' the selected GC method, and applies date-specific external-standard offsets.
-#' This pipeline does not apply derivatization or internal-standard corrections.
+#' their recorded GC methods, applies date-specific external-standard offsets,
+#' and applies an optional compound-specific derivatization correction when the
+#' standards table contains AA and NACME carbon counts.
 #'
 #' @param raw_df Raw GC-IRMS data frame.
 #' @param config Experiment configuration loaded by load_IRMS_config().
 #' @param stds_reference_df Compound-specific standard reference table. Defaults
 #'   to config$stds_reference_df.
 #' @param gc_methods GC methods YAML path or parsed list.
-#' @param method_name GC method key in the methods configuration.
+#' @param method_name Optional fallback GC method key when row-level method names are unavailable.
+#' @param manual_peak_assignments Optional data frame with analysis_no, peak_number, and compound_id columns.
+#' @param derivatization_sample_id Optional sample label for AA mix injections.
+#'   Defaults to the AA mix reference standard ID.
 #' @param external_standard_id Optional sample ID for the external-standard
 #'   injections. Defaults to config$gc_standards$external$sample_id.
 #' @param external_reference_id Optional laboratory reference ID. Defaults to
@@ -39,14 +43,16 @@ process_gc <- function(
     config,
     stds_reference_df = NULL,
     gc_methods,
-    method_name,
+    method_name = NULL,
     external_standard_id = NULL,
     external_reference_id = NULL,
     isotope = "C13",
     verbose = TRUE,
     exclude_standard_injection_ids = NULL,
     exclude_measurements = NULL,
-    exclude_standard_compound_ids = NULL
+    exclude_standard_compound_ids = NULL,
+    manual_peak_assignments = NULL,
+    derivatization_sample_id = NULL
 ) {
   if (is.null(stds_reference_df)) {
     stds_reference_df <- config$stds_reference_df
@@ -103,7 +109,8 @@ process_gc <- function(
     isotope = isotope,
     verbose = verbose,
     gc_methods = gc_methods,
-    method_name = method_name
+    method_name = method_name,
+    manual_peak_assignments = manual_peak_assignments
   )
 
   processing_config <- config[["processing"]]
@@ -275,14 +282,81 @@ process_gc <- function(
 
   data <- correction$data
   data$run_id <- config$experiment_name
-  data$method_name <- method_name
+  if (!"method_name" %in% names(data)) data$method_name <- method_name
   data$is_external_standard <- !is.na(data$sample_id) &
     trimws(as.character(data$sample_id)) == external_standard_id
-  data$delta_value_final <- data$delta_value_external_corrected
+
+  derivatization_estimates <- data.frame()
+  derivatization_role <- config$gc_standards$derivatization
+  if (is.null(derivatization_sample_id)) {
+    derivatization_sample_id <- derivatization_role$sample_id
+  }
+  derivatization_reference_id <- derivatization_role$reference_id %||%
+    derivatization_role$standard_id
+
+  has_carbon_count_metadata <- all(c(
+    "standard_id", "AA_C_count", "NACME_C_count"
+  ) %in% names(stds_reference_df)) &&
+    any(is.finite(as.numeric(stds_reference_df$AA_C_count)) &
+      is.finite(as.numeric(stds_reference_df$NACME_C_count)))
+
+  if (has_carbon_count_metadata) {
+    count_standard_ids <- unique(as.character(stds_reference_df$standard_id[
+      is.finite(as.numeric(stds_reference_df$AA_C_count)) &
+        is.finite(as.numeric(stds_reference_df$NACME_C_count))
+    ]))
+    if (is.null(derivatization_reference_id)) {
+      if (length(count_standard_ids) != 1) {
+        stop(
+          "Configure standards$gc$derivatization$reference_id when more ",
+          "than one standard has derivatization carbon counts."
+        )
+      }
+      derivatization_reference_id <- count_standard_ids[[1]]
+    }
+    derivatization_reference_id <- as.character(derivatization_reference_id)
+    if (!derivatization_reference_id %in% count_standard_ids) {
+      stop(
+        "Derivatization reference ID has no AA/NACME carbon counts: ",
+        derivatization_reference_id
+      )
+    }
+    if (is.null(derivatization_sample_id)) {
+      derivatization_sample_id <- derivatization_reference_id
+    }
+    derivatization_estimates <- estimate_gc_nacme(
+      canonical_df = data,
+      standards_reference_df = stds_reference_df,
+      standard_id = derivatization_reference_id,
+      sample_id = derivatization_sample_id,
+      external_standard_reference_id = external_reference_id
+    )
+    data <- correct_gc_nacme(
+      canonical_df = data,
+      nacme_estimates = derivatization_estimates,
+      sample_id = derivatization_sample_id
+    )
+  } else {
+    data$is_derivatization_standard <- FALSE
+    data$delta_value_nacme_corrected <- NA_real_
+    data$delta_NACME <- NA_real_
+    data$sigma_NACME <- NA_real_
+    data$delta_value_final <- data$delta_value_external_corrected
+  }
+
+  unresolved_peaks <- data[
+    data$compound_match_status %in% c(
+      "ambiguous", "unmatched", "missing_retention_time", "missing_method",
+      "unknown_method", "not_configured"
+    ),
+    ,
+    drop = FALSE
+  ]
 
   output_cols <- c(
     "run_id",
     "method_name",
+    "peak_id",
     "injection_id",
     "sample_id",
     "analysis_no",
@@ -303,7 +377,17 @@ process_gc <- function(
     "instrument"
   )
   output_cols <- output_cols[output_cols %in% names(data)]
-  output <- data[, output_cols, drop = FALSE]
+  output_cols <- unique(c(
+    output_cols,
+    "delta_value_nacme_corrected", "delta_NACME", "sigma_NACME",
+    "is_derivatization_standard"
+  ))
+  output_cols <- output_cols[output_cols %in% names(data)]
+  output <- data[
+    !data$is_derivatization_standard,
+    output_cols,
+    drop = FALSE
+  ]
 
   visualization_data <- summarize_replicates(
     data = output,
@@ -324,11 +408,19 @@ process_gc <- function(
       nrow(correction$daily_offsets),
       " corrected date(s)."
     )
+    if (nrow(derivatization_estimates) > 0) {
+      message(
+        "NACME estimates: ", nrow(derivatization_estimates),
+        " date/compound combination(s); AA mix sample ID '",
+        derivatization_sample_id, "'."
+      )
+    }
   }
 
   list(
     data = data,
     output = output,
+    unresolved_peaks = unresolved_peaks,
     visualization_data = visualization_data,
     excluded_measurements = excluded_measurements,
     unmatched_measurement_exclusions = unmatched_measurement_exclusions,
@@ -342,9 +434,12 @@ process_gc <- function(
       correction$missing_excluded_standard_compound_ids,
     injection_offsets = correction$injection_offsets,
     daily_offsets = correction$daily_offsets,
+    derivatization_estimates = derivatization_estimates,
+    derivatization_sample_id = derivatization_sample_id,
+    derivatization_reference_id = derivatization_reference_id,
     external_standard_id = external_standard_id,
     external_reference_id = external_reference_id,
-    method_name = method_name,
+    method_name = unique(stats::na.omit(data$method_name)),
     isotope = isotope
   )
 }

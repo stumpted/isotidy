@@ -60,6 +60,7 @@ GC:
     analysis_no: "Analysis No."
     comment: "Comment"
     sample_type: "Sample Type"
+    method_name: "ConFlo Method"
     status: "Status"
     start_time: "Start Time"
     stop_time: "Stop Time"

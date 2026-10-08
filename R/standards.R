@@ -64,6 +64,7 @@ normalize_yaml_standards <- function(records) {
     )
 
     purrr::map2_dfr(values, compound_ids, function(value, compound_id) {
+      value_metadata <- if (is.list(value)) value else list()
       if (is.list(value)) {
         delta_value <- value$delta_value
         delta_uncertainty <- value$delta_uncertainty
@@ -93,6 +94,37 @@ normalize_yaml_standards <- function(records) {
         )
       }
 
+      aa_c_count <- if (is.null(value_metadata$AA_C_count)) {
+        NA_real_
+      } else {
+        suppressWarnings(as.numeric(value_metadata$AA_C_count))
+      }
+      nacme_c_count <- if (is.null(value_metadata$NACME_C_count)) {
+        NA_real_
+      } else {
+        suppressWarnings(as.numeric(value_metadata$NACME_C_count))
+      }
+      if (
+        length(aa_c_count) != 1 || length(nacme_c_count) != 1 ||
+        (!is.null(value_metadata$AA_C_count) && is.na(aa_c_count)) ||
+        (!is.null(value_metadata$NACME_C_count) && is.na(nacme_c_count))
+      ) {
+        stop(
+          "Standard '", record_name,
+          "' carbon counts must be single numeric values or null."
+        )
+      }
+      if (
+        (!is.na(aa_c_count) && (!is.finite(aa_c_count) || aa_c_count <= 0)) ||
+        (!is.na(nacme_c_count) &&
+          (!is.finite(nacme_c_count) || nacme_c_count <= 0))
+      ) {
+        stop(
+          "Standard '", record_name,
+          "' carbon counts must be finite positive values."
+        )
+      }
+
       tibble::tibble(
         element = as.character(record$element %||% NA_character_),
         delta_value = delta_value,
@@ -105,6 +137,8 @@ normalize_yaml_standards <- function(records) {
         },
         standard_id = standard_id,
         compound_id = compound_id,
+        AA_C_count = aa_c_count,
+        NACME_C_count = nacme_c_count,
         applicable_peripherals = list(peripheral_values)
       )
     })

@@ -108,6 +108,35 @@ assign_gc_compounds <- function(
   canonical_df
 }
 
+apply_gc_manual_peak_assignments <- function(canonical_df, manual_peak_assignments, method_catalog = NULL, fallback_method = NULL) {
+  if (is.null(manual_peak_assignments)) return(canonical_df)
+  if (!is.data.frame(manual_peak_assignments)) stop("'manual_peak_assignments' must be a data frame or NULL.")
+  required <- c("analysis_no", "peak_number", "compound_id")
+  missing <- setdiff(required, names(manual_peak_assignments))
+  if (length(missing)) stop("Manual peak assignments must contain: ", paste(required, collapse = ", "))
+  assignments <- manual_peak_assignments[, required, drop = FALSE]
+  assignments[] <- lapply(assignments, function(x) trimws(as.character(x)))
+  if (anyNA(assignments) || any(vapply(assignments, function(x) any(!nzchar(x)), logical(1)))) stop("Manual peak assignments cannot contain missing or empty identifiers.")
+  key <- function(analysis_no, peak_number) paste(analysis_no, peak_number, sep = "::")
+  assignment_keys <- key(assignments$analysis_no, assignments$peak_number)
+  if (anyDuplicated(assignment_keys)) stop("Manual assignments contain duplicate analysis_no + peak_number keys.")
+  data_keys <- key(as.character(canonical_df$analysis_no), as.character(canonical_df$peak_number))
+  valid_keys <- !is.na(canonical_df$analysis_no) & !is.na(canonical_df$peak_number)
+  if (anyDuplicated(data_keys[valid_keys])) stop("GC data contain duplicate analysis_no + peak_number keys; manual assignment is not unique.")
+  row_index <- match(assignment_keys, data_keys)
+  absent <- is.na(row_index)
+  if (any(absent)) warning(sum(absent), " manual assignment(s) did not match an analysis_no + peak_number in the data.")
+  for (i in which(!absent)) {
+    row <- row_index[[i]]
+    method <- if ("method_name" %in% names(canonical_df)) as.character(canonical_df$method_name[[row]]) else fallback_method
+    method_config <- if (!is.null(method_catalog) && !is.na(method) && nzchar(method)) method_catalog[[method]] else if (!is.null(method_catalog) && !is.null(method_catalog$compounds)) method_catalog else NULL
+    allowed <- names(method_config$compounds)
+    if (length(allowed) && !assignments$compound_id[[i]] %in% allowed) stop("Manual compound '", assignments$compound_id[[i]], "' is not configured for method '", method, "'.")
+    canonical_df$compound_id[[row]] <- assignments$compound_id[[i]]
+    canonical_df$compound_match_status[[row]] <- "manual_matched"
+  }
+  canonical_df
+}
 #' Adapt raw GC-IRMS data to the canonical format
 #'
 #' Maps raw instrument columns into canonical fields and, when method
@@ -130,7 +159,8 @@ adapt_gc_data <- function(
     isotope = "C13",
     verbose = TRUE,
     gc_methods = NULL,
-    method_name = NULL
+    method_name = NULL,
+    manual_peak_assignments = NULL
 ) {
   if (!is.data.frame(raw_df)) {
     stop("'raw_df' must be a data frame.")
@@ -222,14 +252,23 @@ adapt_gc_data <- function(
     analysis_no = mapping$analysis_no,
     comment = mapping$comment,
     sample_type = mapping$sample_type,
+    method_name = mapping$method_name,
     status = mapping$status,
     start_time = mapping$start_time,
     stop_time = mapping$stop_time,
     peak_number = mapping$peak_number,
     isotope_ratio = resolve_template(mapping$isotope_ratio),
     retention_time = resolve_template(mapping$retention_time),
-    peak_amplitude = resolve_template(mapping$peak_amplitude),
-    peak_area = resolve_template(mapping$peak_area)
+    peak_amplitude = if (is.null(mapping$peak_amplitude)) {
+      NULL
+    } else {
+      resolve_template(mapping$peak_amplitude)
+    },
+    peak_area = if (is.null(mapping$peak_area)) {
+      NULL
+    } else {
+      resolve_template(mapping$peak_area)
+    }
   )
 
   required_mapping <- c(
@@ -243,9 +282,9 @@ adapt_gc_data <- function(
     "stop_time",
     "peak_number",
     "isotope_ratio",
-    "retention_time",
-    "peak_amplitude",
-    "peak_area"
+    # Retention time is needed to assign a compound from the configured
+    # method; peak amplitude and area are retained only as optional QC fields.
+    "retention_time"
   )
 
   missing_mapping <- required_mapping[
@@ -264,7 +303,7 @@ adapt_gc_data <- function(
   }
 
   missing_columns <- setdiff(
-    unlist(resolved_mapping, use.names = FALSE),
+    unlist(resolved_mapping[required_mapping], use.names = FALSE),
     names(raw_df)
   )
 
@@ -294,6 +333,7 @@ adapt_gc_data <- function(
       analysis_no = .data[[resolved_mapping$analysis_no]],
       comment = .data[[resolved_mapping$comment]],
       sample_type = .data[[resolved_mapping$sample_type]],
+      method_name = as.character(.data[[resolved_mapping$method_name]]),
       status = .data[[resolved_mapping$status]],
       start_time = excel_datetime(
         .data[[resolved_mapping$start_time]]
@@ -308,12 +348,22 @@ adapt_gc_data <- function(
       delta_value = as.numeric(
         .data[[resolved_mapping$isotope_ratio]]
       ),
-      peak_amplitude = as.numeric(
-        .data[[resolved_mapping$peak_amplitude]]
-      ),
-      area_or_voltage = as.numeric(
-        .data[[resolved_mapping$peak_area]]
-      ),
+      peak_amplitude = if (
+        !is.null(resolved_mapping$peak_amplitude) &&
+          resolved_mapping$peak_amplitude %in% names(raw_df)
+      ) {
+        as.numeric(.data[[resolved_mapping$peak_amplitude]])
+      } else {
+        rep(NA_real_, nrow(raw_df))
+      },
+      area_or_voltage = if (
+        !is.null(resolved_mapping$peak_area) &&
+          resolved_mapping$peak_area %in% names(raw_df)
+      ) {
+        as.numeric(.data[[resolved_mapping$peak_area]])
+      } else {
+        rep(NA_real_, nrow(raw_df))
+      },
       element = element,
       isotope = isotope,
       amount = NA_real_,
@@ -322,6 +372,7 @@ adapt_gc_data <- function(
       compound_match_status = "not_configured"
     )
 
+  method_catalog <- NULL
   if (!is.null(gc_methods)) {
     if (is.character(gc_methods) && length(gc_methods) == 1) {
       if (!file.exists(gc_methods)) {
@@ -331,40 +382,52 @@ adapt_gc_data <- function(
       gc_methods <- yaml::read_yaml(gc_methods)
     }
 
-    if (is.null(method_name)) {
-      method_name <- config$processing$gc_method
-    }
+    method_catalog <- gc_methods$methods %||% gc_methods
+    has_row_method <- "method_name" %in% names(data) &&
+      any(!is.na(data$method_name) & nzchar(trimws(data$method_name)))
 
-    if (!is.null(gc_methods$compounds)) {
-      method_config <- gc_methods
+    if (has_row_method) {
+      row_methods <- trimws(as.character(data$method_name))
+      missing_method_rows <- is.na(row_methods) | !nzchar(row_methods)
+      if (any(missing_method_rows)) {
+        warning(sum(missing_method_rows),
+          " GC peak row(s) have no method name; compound IDs remain unassigned.")
+      }
+      data$compound_id <- NA_character_
+      data$compound_match_status <- ifelse(missing_method_rows,
+        "missing_method", "unmatched")
+      for (method_key in unique(row_methods[!missing_method_rows])) {
+        method_config <- method_catalog[[method_key]]
+        if (is.null(method_config)) {
+          warning("GC method '", method_key,
+            "' was not found in the methods config; compound IDs remain unassigned for those rows.")
+          data$compound_match_status[row_methods == method_key] <- "unknown_method"
+          next
+        }
+        rows <- which(row_methods == method_key)
+        assigned <- assign_gc_compounds(data[rows, , drop = FALSE],
+          method_config = method_config, verbose = FALSE)
+        data$compound_id[rows] <- assigned$compound_id
+        data$compound_match_status[rows] <- assigned$compound_match_status
+      }
+      if (verbose) message("Assigned GC compounds by the method recorded for each injection.")
     } else {
-      method_catalog <- gc_methods$methods %||% gc_methods
-
-      if (
-        is.null(method_name) ||
-        length(method_name) != 1 ||
-        is.na(method_name) ||
-        !nzchar(method_name)
-      ) {
-        stop(
-          "Supply 'method_name' or set ",
-          "config$processing$gc_method."
-        )
+      if (is.null(method_name)) method_name <- config$processing$gc_method
+      if (is.null(gc_methods$compounds)) {
+        if (is.null(method_name) || length(method_name) != 1 || is.na(method_name) || !nzchar(method_name)) {
+          stop("No per-row method was found. Supply 'method_name' or set config$processing$gc_method.")
+        }
+        method_config <- method_catalog[[method_name]]
+        if (is.null(method_config)) stop("GC method not found in methods config: ", method_name)
+      } else {
+        method_config <- gc_methods
       }
+      data$method_name <- method_name
+      data <- assign_gc_compounds(data, method_config, verbose = verbose)
+    }  }
 
-      method_config <- method_catalog[[method_name]]
-
-      if (is.null(method_config)) {
-        stop("GC method not found in methods config: ", method_name)
-      }
-    }
-
-    data <- assign_gc_compounds(
-      canonical_df = data,
-      method_config = method_config,
-      verbose = verbose
-    )
-  }
+  data <- apply_gc_manual_peak_assignments(data, manual_peak_assignments, method_catalog, method_name)
+  data$peak_id <- paste(as.character(data$analysis_no), as.character(data$peak_number), sep = "::")
 
   if (verbose) {
     cat(
