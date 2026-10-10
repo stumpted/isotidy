@@ -2,6 +2,8 @@
 
 export(adapt_ea_data)
 export(adapt_gc_data)
+export(adapt_gb_data)
+export(process_gb)
 export(get_config_element)
 export(get_peripheral_schema)
 export(load_IRMS_config)

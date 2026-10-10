@@ -1,0 +1,532 @@
+---
+title: "GB Adapter Test"
+output: html_document
+date: "2026-10-10"
+---
+
+This notebook is a small, data-backed smoke-check for GB processing. It reads the
+current GB export and configuration, applies name exclusions and the configured
+sample peak-number range, applies a diagnostic linear drift correction using
+ETH4, and compares raw and drift-adjusted standard values. It does not apply an
+intensity or scale correction or save processed results.
+
+```{r setup}
+library(isotidy)
+library(readxl)
+library(dplyr)
+library(ggplot2)
+
+data_path <- file.path(
+  "..",
+  "..",
+  "data",
+  "20260826_tp_DIC_GB-IRMS"
+)
+
+config_path <- file.path(
+  data_path,
+  "analyzed_data",
+  "experiment_config.yaml"
+)
+
+lab_config_dir <- file.path(
+  "..",
+  "..",
+  "..",
+  "sessions_lab_isotidy_config"
+)
+
+config <- load_IRMS_config(config_path, lab_config_dir)
+
+raw_data_path <- file.path(
+  data_path,
+  "raw_data",
+  paste0(config$file_name, ".xls")
+)
+
+raw_gb <- readxl::read_xls(raw_data_path)
+
+schemas <- load_peripheral_schemas()
+schema <- get_peripheral_schema(
+  schemas = schemas,
+  peripheral = "GB"
+)
+```
+
+## Process the export
+
+Review this inventory to identify the analyses from the second day. Enter their
+`Analysis` values in `exclude_analysis_numbers` below; the processor will remove
+all peaks belonging to those analyses and report them in `excluded_analyses`.
+
+```{r analysis-inventory}
+format_gb_date <- function(x) {
+  if (inherits(x, "POSIXt")) return(format(as.Date(x), "%Y-%m-%d"))
+  if (inherits(x, "Date")) return(format(x, "%Y-%m-%d"))
+  if (is.numeric(x)) return(format(as.Date(x, origin = "1899-12-30"), "%Y-%m-%d"))
+  trimws(as.character(x))
+}
+
+format_gb_time <- function(x) {
+  if (inherits(x, "POSIXt")) return(format(x, "%H:%M:%S", tz = "UTC"))
+  if (inherits(x, "hms")) x <- as.numeric(x)
+  if (is.numeric(x)) {
+    seconds <- ifelse(abs(x) < 1, x * 86400, x %% 86400)
+    return(format(
+      as.POSIXct(round(seconds), origin = "1970-01-01", tz = "UTC"),
+      "%H:%M:%S",
+      tz = "UTC"
+    ))
+  }
+  trimws(as.character(x))
+}
+
+parse_gb_datetime <- function(date_text, time_text) {
+  datetime_text <- paste(date_text, time_text)
+  formats <- c(
+    "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
+    "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M",
+    "%m/%d/%y %H:%M:%S", "%m/%d/%y %H:%M"
+  )
+  parsed <- as.POSIXct(rep(NA_real_, length(datetime_text)),
+                       origin = "1970-01-01", tz = "UTC")
+  for (date_format in formats) {
+    candidate <- as.POSIXct(datetime_text, format = date_format, tz = "UTC")
+    use_candidate <- is.na(parsed) & !is.na(candidate)
+    parsed[use_candidate] <- candidate[use_candidate]
+  }
+  parsed
+}
+
+raw_analysis_inventory <- raw_gb |>
+  group_by(
+    analysis_no = .data[["Analysis"]],
+    raw_sample_id = .data[["Identifier 1"]],
+    analysis_date = .data[["Date"]],
+    analysis_time = .data[["Time"]]
+  ) |>
+  summarise(n_exported_peaks = n(), .groups = "drop") |>
+mutate(
+    date_text = format_gb_date(analysis_date),
+    time_text = format_gb_time(analysis_time)
+  )
+
+raw_analysis_inventory <- raw_analysis_inventory |>
+  mutate(analysis_datetime = parse_gb_datetime(date_text, time_text))
+
+if (anyNA(raw_analysis_inventory$analysis_datetime)) {
+  stop("Some GB analysis date/time values could not be parsed; inspect the inventory.")
+}
+
+raw_analysis_inventory <- raw_analysis_inventory |>
+  arrange(analysis_date, analysis_datetime, analysis_no) |>
+  group_by(analysis_date) |>
+  mutate(
+    run_analysis_number = row_number(),
+    elapsed_minutes = as.numeric(
+      difftime(analysis_datetime, min(analysis_datetime), units = "mins")
+    )
+  ) |>
+  ungroup()
+
+raw_analysis_inventory
+```
+
+```{r adapt}
+# Replace these with the Analysis numbers for the later-day standards.
+exclude_analysis_numbers <- c(65135, 65136, 65138, 65139, 65140)
+
+gb_result <- process_gb(
+  raw_df = raw_gb,
+  config = config,
+  schema = schema,
+  isotope = "C13",
+  run_id = config$file_name,
+  exclude_analysis_numbers = exclude_analysis_numbers,
+  drift_standard_id = "ETH4",
+  apply_drift_correction = TRUE,
+  verbose = TRUE
+)
+
+gb_data <- gb_result$data
+```
+
+Configured sample peak numbers are shown below. All name-filtered peaks remain
+available as `gb_result$all_peak_data`; peaks outside the sample range are in
+`gb_result$excluded_peaks`. Analyses excluded by number are available in
+`gb_result$excluded_analyses`.
+
+```{r configured-range}
+gb_result$sample_peak_numbers
+nrow(gb_result$data)
+nrow(gb_result$excluded_peaks)
+nrow(gb_result$excluded_analyses)
+gb_result$drift_correction[c(
+  "applied", "reason", "standard_id", "n_standard_analyses",
+  "analysis_range", "reference_delta", "slope_per_analysis",
+  "r_squared", "slope_p_value", "residual_sd",
+  "extrapolated_rows"
+)]
+gb_result$drift_correction$standard_analyses
+```
+
+## Inspect standard matching and peak rows
+
+```{r standards}
+gb_data |>
+  count(raw_sample_id, sample_id, standard_id, is_standard, sort = TRUE)
+```
+
+```{r peaks}
+gb_data |>
+  count(raw_sample_id, peak_number, sort = TRUE)
+```
+
+```{r set-aside-peaks}
+gb_result$excluded_peaks |>
+  count(raw_sample_id, peak_number, peak_exclusion_reason, sort = TRUE)
+```
+
+```{r mapped-fields}
+gb_data |>
+  select(
+    injection_id,
+    raw_sample_id,
+    sample_id,
+    standard_variant,
+    peak_number,
+    delta_value,
+    area_or_voltage,
+    amount,
+    amount_unit
+  ) |>
+  head(20)
+```
+
+## Explore NaHCO3 isotope value versus intensity
+
+The standard concentration is retained in `standard_variant` (for example,
+`_1umol`). The plot shows every selected peak, colored by the original label so
+the concentration series is visible. The regression below uses one mean point
+per injection, avoiding treating the multiple peaks from one injection as
+independent standard injections.
+
+```{r nahco3-intensity-data}
+nahco3_peaks <- gb_data |>
+  filter(standard_id == "NaHCO3") |>
+  filter(
+    is.finite(delta_value),
+    is.finite(area_or_voltage),
+    area_or_voltage > 0
+  ) |>
+  mutate(
+    concentration_label = if_else(
+      is.na(standard_variant) | standard_variant == "",
+      "(no concentration suffix)",
+      standard_variant
+    )
+  )
+
+nahco3_injections <- nahco3_peaks |>
+  group_by(injection_id, raw_sample_id, concentration_label) |>
+  summarise(
+    n_peaks = n(),
+    mean_delta = mean(delta_value),
+    mean_delta_raw = mean(delta_value_raw),
+    mean_area = mean(area_or_voltage),
+    sd_delta = sd(delta_value),
+    .groups = "drop"
+  ) |>
+  filter(is.finite(mean_delta), is.finite(mean_area), mean_area > 0)
+
+stopifnot(
+  nrow(nahco3_peaks) > 0,
+  nrow(nahco3_injections) > 2,
+  dplyr::n_distinct(nahco3_injections$concentration_label) > 1,
+  dplyr::n_distinct(nahco3_injections$mean_area) > 1
+)
+
+nahco3_concentration_summary <- nahco3_injections |>
+  count(concentration_label, name = "n_injections") |>
+  arrange(concentration_label)
+
+nahco3_concentration_summary
+```
+
+```{r nahco3-intensity-plot, fig.width=8, fig.height=5}
+ggplot(
+  nahco3_peaks,
+  aes(x = area_or_voltage, y = delta_value, color = concentration_label)
+) +
+  geom_point(alpha = 0.45) +
+  scale_x_log10() +
+  labs(
+    title = "NaHCO3: isotope value versus peak intensity",
+    x = "Area / voltage (log10 scale)",
+    y = expression(delta^{13}*"C (‰)"),
+    color = "Standard label"
+  ) +
+  theme_minimal()
+```
+
+Fit a linear relationship between isotope value and log intensity using the
+injection means. The slope is in delta units per tenfold increase in area. Its
+p-value is exploratory; concentration and injection effects may still be
+confounded, and the peak-level plot should be reviewed alongside the fit.
+
+```{r nahco3-intensity-fit}
+nahco3_fit <- lm(mean_delta ~ log10(mean_area), data = nahco3_injections)
+nahco3_fit_summary <- summary(nahco3_fit)
+nahco3_fit_raw <- lm(mean_delta_raw ~ log10(mean_area), data = nahco3_injections)
+nahco3_fit_raw_summary <- summary(nahco3_fit_raw)
+
+data.frame(
+  correction = c("uncorrected", "drift corrected"),
+  n_injections = nrow(nahco3_injections),
+  slope_per_log10_area = c(
+    unname(coef(nahco3_fit_raw)[[2]]),
+    unname(coef(nahco3_fit)[[2]])
+  ),
+  r_squared = c(nahco3_fit_raw_summary$r.squared, nahco3_fit_summary$r.squared),
+  p_value_for_slope = c(
+    nahco3_fit_raw_summary$coefficients[2, "Pr(>|t|)"],
+    nahco3_fit_summary$coefficients[2, "Pr(>|t|)"]
+  )
+)
+```
+
+```{r nahco3-injection-fit-plot, fig.width=8, fig.height=5}
+ggplot(
+  nahco3_injections,
+  aes(x = mean_area, y = mean_delta, color = concentration_label)
+) +
+  geom_point(size = 2.5) +
+  geom_smooth(method = "lm", formula = y ~ x, se = TRUE, color = "black") +
+  scale_x_log10() +
+  labs(
+    title = "NaHCO3 injection means and exploratory intensity fit",
+    x = "Mean area / voltage (log10 scale)",
+    y = expression("Mean "*delta^{13}*"C (‰)"),
+    color = "Standard label"
+  ) +
+  theme_minimal()
+```
+
+## Check for peak-order effects within each analysis
+
+Here each line is one GB analysis (one vial/sample acquisition), and points are
+the repeated loop-injection peaks from that analysis. These peaks are not
+independent replicate analyses. The plots check whether the first included
+peak differs systematically or whether isotope values drift across peak order.
+
+```{r nahco3-peak-order-summary}
+nahco3_peak_order_summary <- nahco3_peaks |>
+  arrange(injection_id, peak_number) |>
+  group_by(injection_id, raw_sample_id, concentration_label) |>
+  summarise(
+    n_peaks = n(),
+    first_peak_number = first(peak_number),
+    last_peak_number = last(peak_number),
+    first_peak_delta = first(delta_value),
+    later_mean_delta = if (n() > 1) mean(delta_value[-1]) else NA_real_,
+    first_minus_later_delta = first_peak_delta - later_mean_delta,
+    within_analysis_sd_delta = sd(delta_value),
+    delta_change_first_to_last = last(delta_value) - first(delta_value),
+    first_peak_area = first(area_or_voltage),
+    later_mean_area = if (n() > 1) mean(area_or_voltage[-1]) else NA_real_,
+    .groups = "drop"
+  ) |>
+  arrange(desc(abs(first_minus_later_delta)))
+
+stopifnot(
+  nrow(nahco3_peak_order_summary) > 0,
+  all(nahco3_peak_order_summary$n_peaks > 1),
+  all(nahco3_peak_order_summary$last_peak_number >
+        nahco3_peak_order_summary$first_peak_number)
+)
+
+nahco3_peak_order_summary
+```
+
+```{r nahco3-delta-by-peak-order, fig.width=9, fig.height=6}
+ggplot(
+  nahco3_peaks,
+  aes(
+    x = peak_number,
+    y = delta_value,
+    group = injection_id,
+    color = concentration_label
+  )
+) +
+  geom_line(alpha = 0.45) +
+  geom_point(alpha = 0.75) +
+  facet_wrap(vars(concentration_label), scales = "free_y") +
+  scale_x_continuous(breaks = sort(unique(nahco3_peaks$peak_number))) +
+  labs(
+    title = "NaHCO3 isotope value by peak order within analysis",
+    x = "Peak number",
+    y = expression(delta^{13}*"C (‰)"),
+    color = "Standard label"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+```{r nahco3-area-by-peak-order, fig.width=9, fig.height=6}
+ggplot(
+  nahco3_peaks,
+  aes(
+    x = peak_number,
+    y = area_or_voltage,
+    group = injection_id,
+    color = concentration_label
+  )
+) +
+  geom_line(alpha = 0.45) +
+  geom_point(alpha = 0.75) +
+  facet_wrap(vars(concentration_label), scales = "free_y") +
+  scale_x_continuous(breaks = sort(unique(nahco3_peaks$peak_number))) +
+  labs(
+    title = "NaHCO3 peak intensity by peak order within analysis",
+    x = "Peak number",
+    y = "Area / voltage",
+    color = "Standard label"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+## Evaluate ETH4 across analysis order
+
+ETH4 is used here as a repeated standard across the run. Each point below is
+one analysis summarized across its configured sample peaks; the table retains
+the within-analysis standard deviation and mean signal so run drift and
+intensity changes can be inspected separately. Any analysis numbers entered
+above are excluded from this evaluation too.
+
+```{r eth4-analysis-summary}
+eth4_analyses <- gb_data |>
+  filter(standard_id == "ETH4") |>
+  group_by(analysis_date, analysis_no) |>
+  summarise(
+    n_peaks = n(),
+    mean_delta_raw = mean(delta_value_raw, na.rm = TRUE),
+    mean_delta = mean(delta_value, na.rm = TRUE),
+    sd_delta_within_analysis = sd(delta_value, na.rm = TRUE),
+    mean_area = mean(area_or_voltage, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  left_join(
+    raw_analysis_inventory |>
+      select(
+        analysis_date,
+        analysis_no,
+        analysis_datetime,
+        run_analysis_number,
+        elapsed_minutes
+      ),
+    by = c("analysis_date", "analysis_no")
+  ) |>
+  arrange(analysis_date, run_analysis_number)
+
+stopifnot(
+  nrow(eth4_analyses) > 2,
+  dplyr::n_distinct(eth4_analyses$analysis_no) > 2,
+  all(is.finite(eth4_analyses$mean_delta)),
+  all(is.finite(eth4_analyses$mean_area)),
+  all(is.finite(eth4_analyses$run_analysis_number)),
+  all(is.finite(eth4_analyses$elapsed_minutes))
+)
+
+eth4_analyses
+```
+
+```{r eth4-drift-comparison-data}
+eth4_delta_comparison <- bind_rows(
+  eth4_analyses |>
+    transmute(
+      analysis_date,
+      analysis_no,
+      run_analysis_number,
+      elapsed_minutes,
+      mean_delta = mean_delta_raw,
+      correction = "uncorrected"
+    ),
+  eth4_analyses |>
+    transmute(
+      analysis_date,
+      analysis_no,
+      run_analysis_number,
+      elapsed_minutes,
+      mean_delta,
+      correction = "drift corrected"
+    )
+)
+```
+
+```{r eth4-isotope-by-analysis, fig.width=8, fig.height=5}
+ggplot(
+  eth4_delta_comparison,
+  aes(
+    x = run_analysis_number,
+    y = mean_delta,
+    color = correction,
+    group = correction
+  )
+) +
+  geom_line() +
+  geom_point(size = 2.5) +
+  facet_wrap(vars(analysis_date), scales = "free_x") +
+  scale_color_manual(values = c("uncorrected" = "#D55E00", "drift corrected" = "#0072B2")) +
+  labs(
+    title = "ETH4 mean isotope value before and after drift correction",
+    x = "Run-specific analysis order (instrument Analysis ID is in the table)",
+    y = expression("Mean "*delta^{13}*"C (‰)")
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r eth4-area-by-analysis, fig.width=8, fig.height=5}
+ggplot(eth4_analyses, aes(x = run_analysis_number, y = mean_area)) +
+  geom_line(aes(group = 1), color = "grey60") +
+  geom_point(size = 2.5, color = "#287C8E") +
+  facet_wrap(vars(analysis_date), scales = "free_x") +
+  labs(
+    title = "ETH4 mean intensity across analysis order",
+    x = "Run-specific analysis order (instrument Analysis ID is in the table)",
+    y = "Mean area / voltage"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r eth4-isotope-by-elapsed-time, fig.width=8, fig.height=5}
+ggplot(
+  eth4_delta_comparison,
+  aes(
+    x = elapsed_minutes,
+    y = mean_delta,
+    color = correction,
+    group = interaction(analysis_date, correction)
+  )
+) +
+  geom_line() +
+  geom_point(size = 2.5) +
+  facet_wrap(vars(analysis_date), scales = "free_x") +
+  scale_color_manual(values = c("uncorrected" = "#D55E00", "drift corrected" = "#0072B2")) +
+  labs(
+    title = "ETH4 isotope value before and after drift correction",
+    x = "Minutes since first analysis of that date",
+    y = expression("Mean "*delta^{13}*"C (‰)")
+  ) +
+  theme_minimal()
+```
+
+Drift correction is applied as a linear change in mean ETH4 isotope value per
+instrument `Analysis` number, centered on the mean fitted ETH4 value. Compare
+the raw and corrected curves and inspect the fitted standard table above;
+ETH4 is the fitting reference, so its flattening is not an independent
+validation. The NaHCO3 intensity slope table compares the candidate area trend
+before and after drift adjustment. The separate within-analysis SD shows
+whether repeated peaks themselves are stable.

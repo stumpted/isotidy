@@ -93,27 +93,54 @@ GC:
 
 
 GB:
-  name: "Gasbench IRMS"
-  description: "High-throughput bulk isotope analysis"
-  data_shape: "sample_per_row"
+  name: "GasBench IRMS"
+  description: "Bulk isotope analysis of headspace with peak-per-row GasBench exports"
+  data_shape: "peak_per_row"
   analysis_type: "bulk"
 
   column_mapping:
-    identifier: "Sample"
+    injection_id: "Analysis"
+    identifier: "Identifier 1"
+    amount: "Identifier 2"
+    amount_unit: "Comment"
+    peak_number: "Peak Nr"
+    sample_dilution: "Sample Dilution"
+    isotope_ratio: "d {isotope_mass}{element}/{reference_isotope_mass}{element}"
 
-    isotope_ratio: "d{isotope_mass}{element}"
+    area:
+      "{mass}": "Area {mass}"
 
-    signal: "Amplitude"
-    reference_delta: "Reference delta"
-    delta_difference: "Dd"
+    amplitude:
+      "{mass}": "Ampl  {mass}"
+
+    background:
+      "{mass}": "BGD {mass}"
+
+    date: "Date"
+    time: "Time"
+    retention_time: "Rt"
+    peak_width: "Width"
+    gas_configuration: "Gasconfiguration"
+
+  measurement_masses:
+    - 44
+    - 45
+    - 46
 
   validation:
     required_columns:
+      - "injection_id"
       - "identifier"
+      - "peak_number"
       - "isotope_ratio"
+      - "area"
 
   metadata:
-    use_standards_database: false
+    use_standards_database: true
+    blank_identifier_pattern: "blank"
+    quality_control_identifiers:
+      - "on_off"
+      - "linearity"
 
   replicates:
     identify_by: "name_pattern"
